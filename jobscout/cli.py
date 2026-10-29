@@ -27,12 +27,18 @@ def main(argv: list[str] | None = None) -> int:
 
     warm_parser = sub.add_parser("warm", help="Open a source browser for manual login")
     warm_parser.add_argument("source", choices=["linkedin", "indeed"])
+    warm_parser.add_argument(
+        "--clean",
+        "--reset",
+        action="store_true",
+        help="Clear saved cookies/profile before opening browser",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.host, args.port)
     if args.command == "warm":
-        return _warm(args.source)
+        return _warm(args.source, clean=args.clean)
     if args.command == "run":
         return _run(args.sources, args.cached)
     parser.print_help()
@@ -93,11 +99,21 @@ def _serve(host: str | None, port: int | None) -> int:
     return 0
 
 
-def _warm(source: str) -> int:
+def _warm(source: str, clean: bool = False) -> int:
+    import shutil
     import time
+    from pathlib import Path
 
     settings = load_settings()
     settings.browser.headless = False
+
+    if clean:
+        profile_dir = Path(settings.browser.profile_dir) / source
+        if profile_dir.exists():
+            print(f"🧹 Clearing cookies & profile directory: {profile_dir}")
+            shutil.rmtree(profile_dir, ignore_errors=True)
+            print("✨ Profile cleared.")
+
     url = (
         "https://www.linkedin.com/login"
         if source == "linkedin"

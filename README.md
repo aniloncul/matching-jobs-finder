@@ -49,7 +49,13 @@ Live mode opens a headed Chrome window using a persistent profile.
 make warm-linkedin
 ```
 
-Sign in manually, then close the browser. The session is stored in `.browser-profiles/linkedin`. Indeed runs logged out; if Indeed presents a verification challenge, the source reports an error and the run continues with the other source.
+Sign in manually, then close the browser. The session is stored in `.browser-profiles/linkedin`. Indeed runs logged out; if Indeed presents a verification challenge, JobScout brings the browser to the front and pauses up to 45s for you to complete it, then automatically clears stale cookies and retries.
+
+You can also solve or reset Indeed manually at any time:
+```bash
+make warm-indeed    # Opens visible Chrome to solve challenge & save clean cookies
+make reset-indeed   # Deletes stale profile/cookies, then opens fresh Chrome
+```
 
 ```bash
 uv run jobscout run --sources both

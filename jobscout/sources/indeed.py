@@ -32,7 +32,7 @@ class IndeedSource(BaseSource):
 
         self.status("Opening visible Indeed browser", 0.05)
         try:
-            with browser_context(self.settings, "indeed") as (_context, page):
+            with browser_context(self.settings, "indeed") as (context, page):
                 for query_index, query in enumerate(queries, start=1):
                     if len(jobs) >= cfg.max_jobs:
                         break
@@ -67,17 +67,19 @@ class IndeedSource(BaseSource):
                             break
 
                         if _indeed_blocked(page):
-                            if page_index > 1 and (term_jobs or jobs):
-                                self.status(
-                                    "Indeed stopped this query after page 1 "
-                                    "(verification challenge)",
-                                    0.92,
+                            if not self._handle_challenge_fallback(context, page, url):
+                                if page_index > 1 and (term_jobs or jobs):
+                                    self.status(
+                                        "Indeed stopped this query after page 1 "
+                                        "(verification challenge)",
+                                        0.92,
+                                    )
+                                    break
+                                raise SourceError(
+                                    "Indeed served a verification challenge. Run "
+                                    "`make warm-indeed` or `make reset-indeed`, "
+                                    "solve it once, then retry."
                                 )
-                                break
-                            raise SourceError(
-                                "Indeed served a verification challenge. Run "
-                                "`make warm-indeed`, solve it once, then retry."
-                            )
 
                         try:
                             page.wait_for_selector(
@@ -88,17 +90,28 @@ class IndeedSource(BaseSource):
                             )
                         except Exception as exc:
                             if _indeed_blocked(page):
-                                if page_index > 1 and (term_jobs or jobs):
-                                    self.status(
-                                        "Indeed stopped this query after page 1 "
-                                        "(verification challenge)",
-                                        0.92,
+                                if not self._handle_challenge_fallback(context, page, url):
+                                    if page_index > 1 and (term_jobs or jobs):
+                                        self.status(
+                                            "Indeed stopped this query after page 1 "
+                                            "(verification challenge)",
+                                            0.92,
+                                        )
+                                        break
+                                    raise SourceError(
+                                        "Indeed verification challenge detected. "
+                                        "Run `make warm-indeed` or `make reset-indeed` "
+                                        "once, then retry."
+                                    ) from exc
+                                try:
+                                    page.wait_for_selector(
+                                        "div.job_seen_beacon, "
+                                        "div[data-testid='slider_item'], "
+                                        "a.jcs-JobTitle[data-jk]",
+                                        timeout=10_000,
                                     )
-                                    break
-                                raise SourceError(
-                                    "Indeed verification challenge detected. "
-                                    "Run `make warm-indeed` once, then retry."
-                                ) from exc
+                                except Exception:
+                                    pass
                             if _indeed_no_results(page) or jobs:
                                 self.status(
                                     f"Indeed · no jobs for {query!r}",
@@ -112,10 +125,11 @@ class IndeedSource(BaseSource):
                                     0.92,
                                 )
                                 break
-                            raise SourceError(
-                                "No Indeed job cards appeared. The page may be "
-                                "blocked or the markup changed."
-                            ) from exc
+                            if not _indeed_blocked(page) and not _indeed_no_results(page):
+                                raise SourceError(
+                                    "No Indeed job cards appeared. The page may be "
+                                    "blocked or the markup changed."
+                                ) from exc
 
                         html = page.content()
                         page_jobs = parse_indeed_html(
@@ -152,6 +166,57 @@ class IndeedSource(BaseSource):
             raise SourceError(str(exc)) from exc
         except Exception as exc:
             raise SourceError(f"Indeed run failed: {exc}") from exc
+
+    def _handle_challenge_fallback(self, context, page, url: str) -> bool:
+        """Fallback when Cloudflare/Indeed verification challenge is detected.
+
+        1. Brings the browser to front and waits up to 45 seconds for interactive
+           verification or auto-resolution.
+        2. If still blocked, clears session cookies and retries the URL once with
+           a clean session.
+        3. Returns True if unblocked, False if still blocked.
+        """
+        import time
+
+        self.status("Indeed · Verification challenge detected — waiting...", 0.5)
+        self.emit(
+            "log",
+            "Cloudflare / Indeed verification challenge detected. "
+            "Please solve the captcha in the open browser window if visible (waiting up to 45s)...",
+        )
+
+        try:
+            page.bring_to_front()
+        except Exception:
+            pass
+
+        start_time = time.time()
+        while time.time() - start_time < 45:
+            self.control.checkpoint("indeed challenge wait")
+            page.wait_for_timeout(1000)
+            if not _indeed_blocked(page):
+                self.status("Indeed · Challenge resolved! Continuing...", 0.5)
+                self.emit("log", "Indeed verification challenge resolved.")
+                return True
+
+        # Second fallback: clear session cookies and retry with a clean context
+        self.status("Indeed · Clearing cookies & retrying clean session...", 0.5)
+        self.emit(
+            "log",
+            "Challenge still active after 45s. Clearing cookies and retrying once...",
+        )
+        try:
+            context.clear_cookies()
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_timeout(2500)
+            if not _indeed_blocked(page):
+                self.status("Indeed · Clean session bypass succeeded! Continuing...", 0.5)
+                self.emit("log", "Clean session successfully bypassed the challenge.")
+                return True
+        except Exception as exc:
+            self.emit("log", f"Cookie clear retry encountered error: {exc}")
+
+        return False
 
 
 def _indeed_url(cfg, start: int, query: str | None = None) -> str:

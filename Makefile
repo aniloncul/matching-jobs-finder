@@ -1,6 +1,6 @@
 SHELL := /bin/zsh
 
-.PHONY: setup install build dev serve test typecheck check run run-cached warm-linkedin warm-indeed
+.PHONY: setup install build dev serve test typecheck check run run-cached warm-linkedin warm-indeed reset-indeed
 
 setup: install build
 
@@ -36,3 +36,6 @@ warm-linkedin:
 
 warm-indeed:
 	uv run jobscout warm indeed
+
+reset-indeed:
+	uv run jobscout warm indeed --clean
