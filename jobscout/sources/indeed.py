@@ -132,11 +132,30 @@ class IndeedSource(BaseSource):
                                 )
                                 break
                             else:
-                                _terminal_error = (
-                                    "No Indeed job cards appeared. The page may be "
-                                    "blocked or the markup changed."
+                                # No cards, not detected as blocked, not "no results" —
+                                # Indeed may be serving a soft-block page. Try the fallback
+                                # (cookie clear + manual wait) before giving up.
+                                self.status(
+                                    "Indeed · No job cards — trying cookie reset...",
+                                    0.5,
                                 )
-                                break
+                                resolved = self._handle_challenge_fallback(context, page, url)
+                                if resolved:
+                                    try:
+                                        page.wait_for_selector(
+                                            "div.job_seen_beacon, "
+                                            "div[data-testid='slider_item'], "
+                                            "a.jcs-JobTitle[data-jk]",
+                                            timeout=10_000,
+                                        )
+                                    except Exception:
+                                        pass
+                                else:
+                                    _terminal_error = (
+                                        "No Indeed job cards appeared after cookie reset. "
+                                        "The page may be blocked or the markup changed."
+                                    )
+                                    break
 
                         html = page.content()
                         page_jobs = parse_indeed_html(
