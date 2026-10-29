@@ -17,7 +17,7 @@ def build_sink(settings: Settings, log: Callable[[str], None] | None = None) -> 
         path = settings.google_service_account_json
         if path and path.exists():
             try:
-                sink = GoogleSheetSink(settings.google_sheet_id or "", path)
+                sink = GoogleSheetSink(settings.google_sheet_id or "", path, settings=settings)
                 sink.prepare()
                 return sink
             except Exception as exc:
@@ -28,7 +28,7 @@ def build_sink(settings: Settings, log: Callable[[str], None] | None = None) -> 
     if settings.sink == "google" and not has_google:
         log("SINK=google but Google credentials are incomplete; using local CSV")
 
-    sink = LocalSink(settings.local_jobs_csv, settings.local_runs_csv)
+    sink = LocalSink(settings.local_jobs_csv, settings.local_runs_csv, settings=settings)
     sink.prepare()
     return sink
 

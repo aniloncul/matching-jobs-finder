@@ -88,7 +88,9 @@ export default function App() {
           </>
         ) : null}
 
-        {section === "cover-letters" ? <CoverLetters /> : null}
+        {section === "job-offers" || section === "cover-letters" ? (
+          <CoverLetters />
+        ) : null}
         {section === "profile" ? <ProfileEditor alwaysEdit /> : null}
       </main>
 

@@ -54,6 +54,18 @@ export function getJobs(limit = 100): Promise<{ jobs: JobListing[] }> {
   return request<{ jobs: JobListing[] }>(`/api/jobs?limit=${limit}`);
 }
 
+export function deleteJob(
+  source: string,
+  jobId: string,
+): Promise<{ status: string; source: string; job_id: string }> {
+  return request<{ status: string; source: string; job_id: string }>(
+    `/api/jobs/${encodeURIComponent(source)}/${encodeURIComponent(jobId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
 export function saveJobDescription(
   source: string,
   jobId: string,

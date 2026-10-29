@@ -1450,11 +1450,13 @@ a {
   overflow-y: auto;
 }
 
-.app[data-section="cover-letters"] {
+.app[data-section="cover-letters"],
+.app[data-section="job-offers"] {
   height: 100dvh;
 }
 
-.app[data-section="cover-letters"] .page {
+.app[data-section="cover-letters"] .page,
+.app[data-section="job-offers"] .page {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1660,6 +1662,32 @@ a {
 .cover-generate {
   min-width: 104px;
   padding: var(--spacing-12) var(--spacing-19);
+}
+
+.cover-delete {
+  padding: var(--spacing-12) var(--spacing-16);
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius-sm, 2px);
+  transition: all 0.15s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cover-delete:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: #ef4444;
+  color: #dc2626;
+}
+
+.cover-delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .cover-custom-panel {

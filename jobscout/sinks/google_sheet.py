@@ -6,18 +6,36 @@ from pathlib import Path
 import gspread
 from gspread.exceptions import WorksheetNotFound
 
+from jobscout.config import Settings
 from jobscout.dedupe import dedupe_jobs, fingerprint_values
+from jobscout.exclusions import add_excluded_job, get_excluded_keys_and_fingerprints
 from jobscout.models import Job, now_iso
 from jobscout.sinks.base import Sink, SinkError
 from jobscout.sinks.local import JOB_HEADERS, RUN_HEADERS
+
+EXCLUDED_HEADERS = [
+    "Company Name",
+    "Job Title",
+    "Location",
+    "Source",
+    "Job ID",
+    "Job Link",
+    "Deleted At",
+]
 
 
 class GoogleSheetSink(Sink):
     kind = "google"
 
-    def __init__(self, sheet_id: str, service_account_json: Path) -> None:
+    def __init__(
+        self,
+        sheet_id: str,
+        service_account_json: Path,
+        settings: Settings | None = None,
+    ) -> None:
         self.sheet_id = sheet_id
         self.service_account_json = service_account_json
+        self.settings = settings
         self.sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
         self._jobs = None
         self._runs = None
@@ -62,28 +80,128 @@ class GoogleSheetSink(Sink):
         rows = self._jobs.get_all_values()
         self._keys = set()
         self._fingerprints = set()
+        if len(rows) >= 2:
+            headers = rows[0]
+            index = {header: i for i, header in enumerate(headers)}
+            for row in rows[1:]:
+                def value(name: str) -> str:
+                    i = index.get(name)
+                    return row[i].strip() if i is not None and i < len(row) else ""
+
+                source = value("Source")
+                job_id = value("Job ID")
+                if source and job_id:
+                    self._keys.add((source, job_id))
+                self._fingerprints.add(
+                    fingerprint_values(
+                        value("Company Name"),
+                        value("Job Title"),
+                        value("Location"),
+                    )
+                )
+
+        # Also load from Deleted Jobs worksheet if present
+        try:
+            sheet = self._client().open_by_key(self.sheet_id)
+            try:
+                ex_sheet = sheet.worksheet("Deleted Jobs")
+                ex_rows = ex_sheet.get_all_values()
+                if len(ex_rows) >= 2:
+                    ex_idx = {h: i for i, h in enumerate(ex_rows[0])}
+                    for row in ex_rows[1:]:
+                        def ex_val(name: str) -> str:
+                            i = ex_idx.get(name)
+                            return row[i].strip() if i is not None and i < len(row) else ""
+                        s = ex_val("Source").lower()
+                        j = ex_val("Job ID")
+                        if s and j:
+                            self._keys.add((s, j))
+                        c = ex_val("Company Name")
+                        t = ex_val("Job Title")
+                        l = ex_val("Location")
+                        if c and t:
+                            self._fingerprints.add(fingerprint_values(c, t, l))
+            except WorksheetNotFound:
+                pass
+        except Exception:
+            pass
+
+        # Also merge persistent local exclusions
+        ex_keys, ex_fps = get_excluded_keys_and_fingerprints(self.settings)
+        self._keys.update(ex_keys)
+        self._fingerprints.update(ex_fps)
+        return self._keys, self._fingerprints
+
+    def delete_job(self, source: str, job_id: str) -> bool:
+        if self._jobs is None:
+            self.prepare()
+        assert self._jobs is not None
+        rows = self._jobs.get_all_values()
+        clean_src = source.strip().lower()
+        clean_id = job_id.strip()
+
         if len(rows) < 2:
-            return self._keys, self._fingerprints
+            add_excluded_job(self.settings, source=source, job_id=job_id)
+            self._keys.add((clean_src, clean_id))
+            return True
 
         headers = rows[0]
         index = {header: i for i, header in enumerate(headers)}
-        for row in rows[1:]:
-            def value(name: str) -> str:
-                i = index.get(name)
-                return row[i].strip() if i is not None and i < len(row) else ""
+        source_col = index.get("Source")
+        id_col = index.get("Job ID")
 
-            source = value("Source")
-            job_id = value("Job ID")
-            if source and job_id:
-                self._keys.add((source, job_id))
+        row_to_delete = None
+        deleted_data = None
+        for row_number, row in enumerate(rows[1:], start=2):
+            row_src = row[source_col].strip().lower() if source_col is not None and source_col < len(row) else ""
+            row_id = row[id_col].strip() if id_col is not None and id_col < len(row) else ""
+            if row_src == clean_src and row_id == clean_id:
+                row_to_delete = row_number
+                def value(name: str) -> str:
+                    i = index.get(name)
+                    return row[i].strip() if i is not None and i < len(row) else ""
+                deleted_data = {
+                    "source": row_src or source,
+                    "job_id": row_id or job_id,
+                    "company": value("Company Name"),
+                    "title": value("Job Title"),
+                    "location": value("Location"),
+                    "link": value("Job Link"),
+                }
+                break
+
+        if row_to_delete is not None:
+            self._jobs.delete_rows(row_to_delete)
+            try:
+                ex_sheet = self._worksheet("Deleted Jobs", EXCLUDED_HEADERS)
+                row_vals = [
+                    deleted_data["company"],
+                    deleted_data["title"],
+                    deleted_data["location"],
+                    deleted_data["source"],
+                    deleted_data["job_id"],
+                    deleted_data["link"],
+                    now_iso(),
+                ]
+                ex_sheet.append_row(row_vals, value_input_option="USER_ENTERED")
+            except Exception:
+                pass
+
+        if deleted_data:
+            add_excluded_job(self.settings, **deleted_data)
+        else:
+            add_excluded_job(self.settings, source=source, job_id=job_id)
+
+        self._keys.add((clean_src, clean_id))
+        if deleted_data and deleted_data.get("company") and deleted_data.get("title"):
             self._fingerprints.add(
                 fingerprint_values(
-                    value("Company Name"),
-                    value("Job Title"),
-                    value("Location"),
+                    deleted_data["company"],
+                    deleted_data["title"],
+                    deleted_data.get("location"),
                 )
             )
-        return self._keys, self._fingerprints
+        return True
 
     @staticmethod
     def _ensure_headers(worksheet, headers: list[str]) -> None:

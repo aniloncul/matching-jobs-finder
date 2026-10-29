@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Section = "run" | "cover-letters" | "profile";
+export type Section = "run" | "job-offers" | "profile" | "cover-letters";
 
-export const SECTIONS: { id: Section; label: string }[] = [
+export const SECTIONS: { id: "run" | "job-offers" | "profile"; label: string }[] = [
   { id: "run", label: "RUN" },
-  { id: "cover-letters", label: "COVER LETTERS" },
+  { id: "job-offers", label: "JOB OFFERS" },
   { id: "profile", label: "APPLICANT PROFILE" },
 ];
 
 const HASH_TO_SECTION: Record<string, Section> = {
   "#run": "run",
-  "#cover-letters": "cover-letters",
+  "#job-offers": "job-offers",
+  "#cover-letters": "job-offers",
   "#profile": "profile",
 };
 
 const SECTION_TO_HASH: Record<Section, string> = {
   run: "#run",
-  "cover-letters": "#cover-letters",
+  "job-offers": "#job-offers",
+  "cover-letters": "#job-offers",
   profile: "#profile",
 };
 

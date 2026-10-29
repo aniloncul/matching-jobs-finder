@@ -4,7 +4,9 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
+from jobscout.config import Settings
 from jobscout.dedupe import dedupe_jobs, fingerprint_values
+from jobscout.exclusions import add_excluded_job, get_excluded_keys_and_fingerprints
 from jobscout.models import Job, now_iso
 from jobscout.sinks.base import Sink
 
@@ -41,9 +43,15 @@ RUN_HEADERS = [
 class LocalSink(Sink):
     kind = "local"
 
-    def __init__(self, jobs_csv: Path, runs_csv: Path) -> None:
+    def __init__(
+        self,
+        jobs_csv: Path,
+        runs_csv: Path,
+        settings: Settings | None = None,
+    ) -> None:
         self.jobs_csv = jobs_csv
         self.runs_csv = runs_csv
+        self.settings = settings
         self._keys: set[tuple[str, str]] = set()
         self._fingerprints: set[tuple[str, str, str]] = set()
 
@@ -62,23 +70,76 @@ class LocalSink(Sink):
     def existing(self) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
         self._keys = set()
         self._fingerprints = set()
-        if not self.jobs_csv.exists():
-            return self._keys, self._fingerprints
-
-        with self.jobs_csv.open(newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                source = (row.get("Source") or "").strip()
-                job_id = (row.get("Job ID") or "").strip()
-                if source and job_id:
-                    self._keys.add((source, job_id))
-                self._fingerprints.add(
-                    fingerprint_values(
-                        row.get("Company Name"),
-                        row.get("Job Title"),
-                        row.get("Location"),
+        if self.jobs_csv.exists():
+            with self.jobs_csv.open(newline="", encoding="utf-8") as handle:
+                for row in csv.DictReader(handle):
+                    source = (row.get("Source") or "").strip()
+                    job_id = (row.get("Job ID") or "").strip()
+                    if source and job_id:
+                        self._keys.add((source, job_id))
+                    self._fingerprints.add(
+                        fingerprint_values(
+                            row.get("Company Name"),
+                            row.get("Job Title"),
+                            row.get("Location"),
+                        )
                     )
-                )
+
+        # Include excluded / deleted jobs so they are never re-scraped
+        ex_keys, ex_fps = get_excluded_keys_and_fingerprints(self.settings)
+        self._keys.update(ex_keys)
+        self._fingerprints.update(ex_fps)
         return self._keys, self._fingerprints
+
+    def delete_job(self, source: str, job_id: str) -> bool:
+        deleted_data = None
+        clean_src = source.strip().lower()
+        clean_id = job_id.strip()
+
+        if self.jobs_csv.exists():
+            with self.jobs_csv.open(newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                headers = reader.fieldnames or JOB_HEADERS
+                rows = list(reader)
+
+            remaining = []
+            for row in rows:
+                row_src = (row.get("Source") or "").strip().lower()
+                row_id = (row.get("Job ID") or "").strip()
+                if row_src == clean_src and row_id == clean_id:
+                    deleted_data = {
+                        "source": row.get("Source", source),
+                        "job_id": row_id,
+                        "company": row.get("Company Name", ""),
+                        "title": row.get("Job Title", ""),
+                        "location": row.get("Location", ""),
+                        "link": row.get("Job Link", ""),
+                    }
+                else:
+                    remaining.append(row)
+
+            temporary = self.jobs_csv.with_name(f".{self.jobs_csv.name}.tmp")
+            with temporary.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=headers, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(remaining)
+            temporary.replace(self.jobs_csv)
+
+        if deleted_data:
+            add_excluded_job(self.settings, **deleted_data)
+        else:
+            add_excluded_job(self.settings, source=source, job_id=job_id)
+
+        self._keys.add((clean_src, clean_id))
+        if deleted_data and deleted_data.get("company") and deleted_data.get("title"):
+            self._fingerprints.add(
+                fingerprint_values(
+                    deleted_data["company"],
+                    deleted_data["title"],
+                    deleted_data.get("location"),
+                )
+            )
+        return True
 
     def write(self, jobs: list[Job], cross_source: bool = False) -> int:
         unique, _skipped = dedupe_jobs(

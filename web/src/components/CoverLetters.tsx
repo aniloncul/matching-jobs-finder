@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { generateCoverLetter, getJobs, getProfileStatus } from "../api";
+import { deleteJob, generateCoverLetter, getJobs, getProfileStatus } from "../api";
 import { formatVisitTime, useJobVisits } from "../hooks/useJobVisits";
 import type { JobListing, ProfileStatus } from "../types";
 import { SourceIcon } from "./SourceIcon";
@@ -12,6 +12,7 @@ export function CoverLetters() {
   const [jobs, setJobs] = useState<JobListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { visits, recordVisit } = useJobVisits();
   const [profile, setProfile] = useState<ProfileStatus | null>(null);
@@ -220,15 +221,33 @@ export function CoverLetters() {
     }
   }
 
+  async function handleDelete(job: JobListing) {
+    const key = jobKey(job);
+    const confirmMsg = `Delete "${job.title}" at "${job.company}"?\n\nThis will remove the row from Google Sheets and permanently exclude it from future searches.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeleting(key);
+    setNotice(null);
+    try {
+      await deleteJob(job.source, job.job_id);
+      setJobs((prev) => prev.filter((item) => jobKey(item) !== key));
+      setNotice(`Deleted: ${job.company} · ${job.title} (removed from Google Sheets & permanently excluded)`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   return (
     <section className="cover-letters" aria-labelledby="cover-letters-title">
       <div className="cover-heading">
         <div>
           <h2 id="cover-letters-title" className="cover-title">
-            Cover Letters
+            Job Offers
           </h2>
           <p className="cover-subtitle">
-            {jobs.length} jobs · descriptions + letters in data · LaTeX + PDF
+            {jobs.length} offers · descriptions + letters in data · LaTeX + PDF
           </p>
         </div>
         <div className="cover-controls">
@@ -414,6 +433,15 @@ export function CoverLetters() {
                     title={!profileReady ? "Complete config/profile.yaml first" : undefined}
                   >
                     {isBusy ? `Writing… (${genProgress}%)` : job.has_tex ? "Regenerate" : "Generate"}
+                  </button>
+                  <button
+                    className="button cover-delete"
+                    type="button"
+                    onClick={() => void handleDelete(job)}
+                    disabled={deleting !== null || busy !== null}
+                    title="Delete offer from Google Sheets and exclude from future runs"
+                  >
+                    {deleting === key ? "Deleting…" : "Delete"}
                   </button>
                 </div>
               </div>

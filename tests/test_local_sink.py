@@ -92,3 +92,26 @@ def test_local_sink_saves_description_and_migrates_old_header(tmp_path: Path) ->
     rows = read_rows(jobs_csv)
     assert rows[0]["Description"] == "Full job description"
     assert sink.list_jobs(1)[0].description == "Full job description"
+
+
+def test_local_sink_delete_job_and_persists_exclusion(tmp_path: Path) -> None:
+    from jobscout.config import Settings
+    settings = Settings(root=tmp_path)
+    jobs_csv = tmp_path / "jobs.csv"
+    runs_csv = tmp_path / "runs.csv"
+    sink = LocalSink(jobs_csv, runs_csv, settings=settings)
+    sink.prepare()
+
+    sink.write([make_job("1", "linkedin"), make_job("2", "indeed")])
+    assert len(read_rows(jobs_csv)) == 2
+
+    assert sink.delete_job("linkedin", "1") is True
+    rows_after = read_rows(jobs_csv)
+    assert len(rows_after) == 1
+    assert rows_after[0]["Job ID"] == "2"
+
+    keys, fps = sink.existing()
+    assert ("linkedin", "1") in keys
+
+    assert sink.write([make_job("1", "linkedin")]) == 0
+    assert len(read_rows(jobs_csv)) == 1

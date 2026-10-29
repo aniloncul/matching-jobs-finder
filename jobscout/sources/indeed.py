@@ -319,26 +319,42 @@ def _indeed_blocked(page) -> bool:
     except Exception:
         return False
 
-    if any(
-        marker in title
-        for marker in (
-            "just a moment",
-            "attention required",
-            "security check",
-            "verify you are human",
-        )
-    ):
+    title_markers = (
+        # English
+        "just a moment",
+        "attention required",
+        "security check",
+        "verify you are human",
+        # German (de-DE locale)
+        "nur einen moment",
+        "sicherheitsüberprüfung",
+        "bitte bestätigen",
+    )
+    if any(marker in title for marker in title_markers):
         return True
+
     if "captcha" in url or "challenge" in url:
         return True
 
-    markers = (
+    body_markers = (
+        # English
         "additional verification required",
         "just a moment",
         "unusual traffic",
         "verify you are human",
+        # German
+        "zusätzliche verifizierung",
+        "nur einen moment",
+        "ungewöhnlicher datenverkehr",
+        "sie sind kein roboter",
+        "bitte bestätigen sie",
+        # Universal Cloudflare markers (language-independent)
+        "ray-id",
+        "cloudflare ray id",
+        "fehlerbehebung bei cloudflare",
     )
-    return any(marker in body for marker in markers)
+    return any(marker in body for marker in body_markers)
+
 
 
 def _indeed_no_results(page) -> bool:

@@ -46,3 +46,21 @@ def test_existing_rows_are_skipped() -> None:
     unique, skipped = dedupe_jobs(jobs, existing_keys={("linkedin", "1")})
     assert [item.job_id for item in unique] == ["2"]
     assert skipped == 1
+
+
+def test_excluded_keys_are_skipped() -> None:
+    jobs = [job("indeed", "10"), job("indeed", "11")]
+    unique, skipped = dedupe_jobs(jobs, excluded_keys={("indeed", "10")})
+    assert [item.job_id for item in unique] == ["11"]
+    assert skipped == 1
+
+
+def test_excluded_fingerprints_are_skipped_even_with_cross_source_false() -> None:
+    jobs = [job("linkedin", "new_id", company="TargetCorp", title="Founders Associate", location="Berlin")]
+    unique, skipped = dedupe_jobs(
+        jobs,
+        cross_source=False,
+        excluded_fingerprints={("targetcorp", "founders associate", "berlin")},
+    )
+    assert len(unique) == 0
+    assert skipped == 1

@@ -29,15 +29,25 @@ def dedupe_jobs(
     existing_keys: set[tuple[str, str]] | None = None,
     existing_fingerprints: set[tuple[str, str, str]] | None = None,
     cross_source: bool = False,
+    excluded_keys: set[tuple[str, str]] | None = None,
+    excluded_fingerprints: set[tuple[str, str, str]] | None = None,
 ) -> tuple[list[Job], int]:
     seen_keys = set(existing_keys or set())
     seen_fingerprints = set(existing_fingerprints or set())
+    ex_keys = set(excluded_keys or set())
+    ex_fingerprints = {fp for fp in (excluded_fingerprints or set()) if fp != ("", "", "")}
     unique: list[Job] = []
     skipped = 0
 
     for job in jobs:
         key = job.key()
         fingerprint = job_fingerprint(job)
+
+        # Excluded jobs (deleted by user) are NEVER re-added
+        if key in ex_keys or (fingerprint != ("", "", "") and fingerprint in ex_fingerprints):
+            skipped += 1
+            continue
+
         duplicate = key in seen_keys
         if cross_source and not duplicate:
             duplicate = fingerprint in seen_fingerprints

@@ -34,3 +34,6 @@ class Sink(ABC):
 
     def save_description(self, source: str, job_id: str, description: str) -> bool:
         return False
+
+    def delete_job(self, source: str, job_id: str) -> bool:
+        return False

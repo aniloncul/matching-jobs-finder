@@ -12,6 +12,7 @@ from jobscout.cover_letter.description_store import (
     save_job_description,
 )
 from jobscout.dedupe import dedupe_jobs
+from jobscout.exclusions import get_excluded_keys_and_fingerprints
 from jobscout.models import Job
 from jobscout.sinks import Sink, build_sink
 from jobscout.sources import make_source
@@ -124,11 +125,14 @@ class Orchestrator:
             registrar.log("Deduplicating results")
             self.control.checkpoint("dedupe")
 
+            ex_keys, ex_fps = get_excluded_keys_and_fingerprints(self.settings)
             unique, _duplicates = dedupe_jobs(
                 all_jobs,
                 existing_keys=existing_keys,
                 existing_fingerprints=existing_fingerprints,
                 cross_source=self.settings.dedupe_cross_source,
+                excluded_keys=ex_keys,
+                excluded_fingerprints=ex_fps,
             )
             self.emit(
                 "stats",
@@ -190,6 +194,8 @@ class Orchestrator:
                             else None
                         ),
                         cross_source=self.settings.dedupe_cross_source,
+                        excluded_keys=ex_keys if "ex_keys" in locals() else None,
+                        excluded_fingerprints=ex_fps if "ex_fps" in locals() else None,
                     )
                     new_count = sink.write(
                         unique,

@@ -30,6 +30,7 @@ from jobscout.cover_letter.cv_import import (
 )
 from jobscout.cover_letter.profile import Profile, inspect_profile, save_profile
 from jobscout.events import EventBus
+from jobscout.exclusions import delete_job_files
 from jobscout.models import AgentStatus, Job, Source
 from jobscout.run_manager import RunManager
 from jobscout.sinks import build_sink
@@ -194,6 +195,20 @@ def list_jobs(limit: int = 100) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not read jobs: {exc}") from exc
     return {"jobs": [_job_payload(job) for job in jobs]}
+
+
+@app.delete("/api/jobs/{source}/{job_id}")
+def delete_job(
+    source: str,
+    job_id: str,
+) -> dict:
+    try:
+        sink = build_sink(settings)
+        sink.delete_job(source, job_id)
+        delete_job_files(settings, source, job_id)
+        return {"status": "deleted", "source": source, "job_id": job_id}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete job: {exc}") from exc
 
 
 @app.get("/api/jobs/{source}/{job_id}/description")
