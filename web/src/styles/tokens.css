@@ -1,7 +1,13 @@
 :root {
   --color-canvas-white: #ffffff;
   --color-ink-black: #1d1d1d;
-  --color-accent-teal: #75fbee;
+  --color-accent-teal: #5695F5;
+
+  /* Additional Palette Tokens */
+  --color-olive-green: #80A047;
+  --color-indigo-blue: #2B2EAC;
+  --color-vibrant-magenta: #CC38CD;
+  --color-amber-gold: #E9AF00;
 
   --font-favorit: Arial, ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -52,6 +58,10 @@
   --ink: var(--color-ink-black);
   --teal: var(--color-accent-teal);
   --on-teal: var(--color-ink-black);
+  --color-success-olive: var(--color-olive-green);
+  --color-highlight-indigo: var(--color-indigo-blue);
+  --color-title-magenta: var(--color-vibrant-magenta);
+  --color-gold: var(--color-amber-gold);
   --rule: 1px solid var(--ink);
   --surface: var(--color-canvas-white);
   --surface-subtle: rgba(0, 0, 0, 0.02);

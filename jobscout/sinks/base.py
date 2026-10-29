@@ -37,3 +37,6 @@ class Sink(ABC):
 
     def delete_job(self, source: str, job_id: str) -> bool:
         return False
+
+    def update_job_applied(self, source: str, job_id: str, applied: bool) -> bool:
+        return False

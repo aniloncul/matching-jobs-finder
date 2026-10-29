@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { deleteJob, generateCoverLetter, getJobs, getProfileStatus } from "../api";
+import {
+  deleteJob,
+  generateCoverLetter,
+  getJobs,
+  getProfileStatus,
+  updateJobApplied,
+} from "../api";
 import { formatVisitTime, useJobVisits } from "../hooks/useJobVisits";
 import type { JobListing, ProfileStatus } from "../types";
 import { SourceIcon } from "./SourceIcon";
@@ -13,8 +19,10 @@ export function CoverLetters() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [togglingApplied, setTogglingApplied] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "will_apply" | "applied">("will_apply");
   const [notice, setNotice] = useState<string | null>(null);
-  const { visits, recordVisit } = useJobVisits();
+  const { visits, recordVisit, latestVisitedKey } = useJobVisits();
   const [profile, setProfile] = useState<ProfileStatus | null>(null);
   const [query, setQuery] = useState("");
 
@@ -55,16 +63,28 @@ export function CoverLetters() {
     return () => window.removeEventListener("jobscout:profile-updated", refresh);
   }, []);
 
+  const willApplyCount = useMemo(
+    () => jobs.filter((job) => !job.applied).length,
+    [jobs],
+  );
+
+  const appliedCount = useMemo(
+    () => jobs.filter((job) => Boolean(job.applied)).length,
+    [jobs],
+  );
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return jobs;
-    return jobs.filter((job) =>
-      [job.company, job.title, job.location ?? "", job.search_query]
+    return jobs.filter((job) => {
+      if (statusFilter === "will_apply" && job.applied) return false;
+      if (statusFilter === "applied" && !job.applied) return false;
+      if (!needle) return true;
+      return [job.company, job.title, job.location ?? "", job.search_query]
         .join(" ")
         .toLowerCase()
-        .includes(needle),
-    );
-  }, [jobs, query]);
+        .includes(needle);
+    });
+  }, [jobs, query, statusFilter]);
 
   const profileReady = profile?.ready === true;
 
@@ -239,16 +259,61 @@ export function CoverLetters() {
     }
   }
 
+  async function handleToggleApplied(job: JobListing) {
+    const nextApplied = !job.applied;
+    const key = jobKey(job);
+    setTogglingApplied(key);
+    // Optimistic local state update
+    setJobs((prev) =>
+      prev.map((item) =>
+        jobKey(item) === key ? { ...item, applied: nextApplied } : item,
+      ),
+    );
+    try {
+      await updateJobApplied(job.source, job.job_id, nextApplied);
+      setNotice(
+        `Updated: ${job.company} · ${job.title} → ${nextApplied ? "Applied" : "Will Apply"} (saved to Google Sheets)`,
+      );
+    } catch (error) {
+      // Revert if error
+      setJobs((prev) =>
+        prev.map((item) =>
+          jobKey(item) === key ? { ...item, applied: !nextApplied } : item,
+        ),
+      );
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTogglingApplied(null);
+    }
+  }
+
+
+
   return (
     <section className="cover-letters" aria-labelledby="cover-letters-title">
       <div className="cover-heading">
-        <div>
+        <div className="cover-heading-left">
           <h2 id="cover-letters-title" className="cover-title">
             Job Offers
           </h2>
-          <p className="cover-subtitle">
-            {jobs.length} offers · descriptions + letters in data · LaTeX + PDF
-          </p>
+          <div className="cover-filter-toggle" role="group" aria-label="Filter by application status">
+            <button
+              type="button"
+              className={`cover-filter-btn ${statusFilter === "will_apply" ? "active" : ""}`}
+              onClick={() => setStatusFilter((prev) => prev === "will_apply" ? "all" : "will_apply")}
+              title="Show offers you plan to apply to"
+            >
+              Will Apply ({willApplyCount})
+            </button>
+            <button
+              type="button"
+              className={`cover-filter-btn ${statusFilter === "applied" ? "active" : ""}`}
+              onClick={() => setStatusFilter((prev) => prev === "applied" ? "all" : "applied")}
+              title="Show offers you already applied to"
+            >
+              ✓ Applied ({appliedCount})
+            </button>
+          </div>
         </div>
         <div className="cover-controls">
           <input
@@ -396,8 +461,13 @@ export function CoverLetters() {
         {filtered.map((job) => {
           const key = jobKey(job);
           const isBusy = busy === key;
+          const isLatestVisited = key === latestVisitedKey;
           return (
-            <article className="cover-row" key={key}>
+            <article
+              className={`cover-row ${isLatestVisited ? "cover-row-latest-visited" : ""}`}
+              data-latest-visited={isLatestVisited ? "true" : undefined}
+              key={key}
+            >
               <div className="cover-row-main">
                 <div className="cover-job">
                   <p className="cover-meta">
@@ -409,6 +479,19 @@ export function CoverLetters() {
                   <p className="cover-role">{job.title}</p>
                 </div>
                 <div className="cover-actions">
+                  <button
+                    className={`button cover-status-btn ${job.applied ? "is-applied" : "is-will-apply"}`}
+                    type="button"
+                    onClick={() => void handleToggleApplied(job)}
+                    disabled={togglingApplied === key}
+                    title={
+                      job.applied
+                        ? "Applied (click to unmark)"
+                        : "Click to mark as Applied"
+                    }
+                  >
+                    {togglingApplied === key ? "Saving…" : job.applied ? "✓ Applied" : "+ Mark Applied"}
+                  </button>
                   {job.urls.tex ? (
                     <a
                       className="cover-link"
@@ -445,33 +528,36 @@ export function CoverLetters() {
                   </button>
                 </div>
               </div>
-              {job.link ? (
-                <div className="cover-row-footer">
-                  <a
-                    className="cover-offer"
-                    href={job.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => recordVisit(key)}
-                    aria-label={`Go to job offer on ${job.source}`}
-                  >
-                    <SourceIcon source={job.source} />
-                    <span>Go to job offer</span>
-                  </a>
-                  {visits[key] ? (
-                    <span
-                      className="cover-visit"
-                      title={
-                        visits[key].lastVisited
-                          ? `Last opened ${formatVisitTime(visits[key].lastVisited)}`
-                          : undefined
-                      }
+              <div className="cover-row-footer">
+                <div className="cover-row-footer-left">
+                  {job.link ? (
+                    <a
+                      className="cover-offer"
+                      href={job.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => recordVisit(key)}
+                      aria-label={`Visit job offer on ${job.source}`}
                     >
-                      Visited {visits[key].count}×
-                    </span>
+                      <SourceIcon source={job.source} />
+                      <span>Visit the page ↗</span>
+                    </a>
                   ) : null}
                 </div>
-              ) : null}
+
+                {visits[key] ? (
+                  <span
+                    className="cover-visit"
+                    title={
+                      visits[key].lastVisited
+                        ? `Last opened ${formatVisitTime(visits[key].lastVisited)}`
+                        : undefined
+                    }
+                  >
+                    Visited {visits[key].count}×
+                  </span>
+                ) : null}
+              </div>
             </article>
           );
         })}

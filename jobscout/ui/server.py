@@ -68,9 +68,74 @@ class CoverLetterRequest(BaseModel):
     description: str | None = None
 
 
+class JobAppliedRequest(BaseModel):
+    applied: bool
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True, "run": manager.state.run_id, "status": manager.state.status}
+
+
+@app.get("/api/proxy")
+async def proxy_page(url: str) -> HTMLResponse:
+    """Proxy external job page so it can be embedded in an iframe.
+
+    Strips X-Frame-Options and CSP headers and rewrites relative
+    URLs to absolute so images, CSS and JS still load.
+    """
+    import re
+    from urllib.parse import urlparse
+
+    try:
+        import httpx
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="httpx is required for the proxy endpoint. Install it with: pip install httpx",
+        )
+
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=20.0,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+            },
+        ) as client:
+            resp = await client.get(url)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {exc}") from exc
+
+    content_type = resp.headers.get("content-type", "text/html")
+    if "text/html" not in content_type:
+        return HTMLResponse(content=resp.content, status_code=resp.status_code)
+
+    html = resp.text
+
+    # Rewrite relative URLs → absolute so resources still load
+    base_tag = f'<base href="{origin}/" target="_blank">'
+    html = re.sub(
+        r"(<head[^>]*>)",
+        rf"\1{base_tag}",
+        html,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+    return HTMLResponse(content=html, status_code=resp.status_code)
 
 
 @app.get("/api/state")
@@ -211,9 +276,32 @@ def delete_job(
         raise HTTPException(status_code=500, detail=f"Failed to delete job: {exc}") from exc
 
 
+@app.patch("/api/jobs/{source}/{job_id}/applied")
+def set_job_applied(
+    source: str,
+    job_id: str,
+    payload: JobAppliedRequest,
+) -> dict:
+    try:
+        sink = build_sink(settings)
+        ok = sink.update_job_applied(source, job_id, payload.applied)
+        return {
+            "status": "ok",
+            "updated": ok,
+            "source": source,
+            "job_id": job_id,
+            "applied": payload.applied,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update applied status: {exc}",
+        ) from exc
+
+
 @app.get("/api/jobs/{source}/{job_id}/description")
 def read_job_description(
-    source: Literal["linkedin", "indeed"],
+    source: str,
     job_id: str,
 ) -> PlainTextResponse:
     text = load_saved_description(settings, source, job_id)
@@ -225,8 +313,236 @@ def read_job_description(
             job = None
         text = (job.description or "").strip() if job else ""
     if not text:
-        raise HTTPException(status_code=404, detail="No saved description for this job")
+        try:
+            sink = build_sink(settings)
+            job = _find_job(sink.list_jobs(limit=500), source, job_id)
+            if job and job.source in {Source.linkedin, Source.indeed}:
+                fetched = fetch_job_description(settings, job)
+                if fetched:
+                    text = fetched
+                    persist_job_description(settings, job, text)
+                    try:
+                        sink.save_description(source, job_id, text)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    if not text:
+        raise HTTPException(status_code=404, detail="No description available for this job")
     return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/api/jobs/{source}/{job_id}/preview", response_class=HTMLResponse)
+def preview_job_page(
+    source: str,
+    job_id: str,
+) -> HTMLResponse:
+    import html as html_lib
+
+    job = None
+    try:
+        sink = build_sink(settings)
+        job = _find_job(sink.list_jobs(limit=500), source, job_id)
+    except Exception:
+        pass
+
+    text = load_saved_description(settings, source, job_id)
+    if not text and job:
+        text = (job.description or "").strip()
+
+    title = job.title if job else f"{source.upper()} Job"
+    company = job.company if job else ""
+    location = job.location or "" if job else ""
+    link = job.link if job else "#"
+    status_applied = bool(job and job.applied)
+
+    esc_title = html_lib.escape(title)
+    esc_company = html_lib.escape(company)
+    esc_location = html_lib.escape(location)
+    esc_link = html_lib.escape(link)
+    esc_source = html_lib.escape(source.upper())
+
+    if text:
+        paragraphs = [f"<p>{html_lib.escape(p.strip())}</p>" for p in text.split("\n\n") if p.strip()]
+        body_content = "".join(paragraphs) if paragraphs else f"<p>{html_lib.escape(text)}</p>"
+    else:
+        body_content = f"""
+        <div class="empty-state">
+            <div class="spinner"></div>
+            <p><strong>Job Description is not loaded yet.</strong></p>
+            <p class="sub">Click below to fetch the full text or open directly on {esc_source}:</p>
+            <div class="actions">
+                <a class="btn primary" href="{esc_link}" target="_blank" rel="noopener noreferrer">Open Original Posting on {esc_source} ↗</a>
+            </div>
+        </div>
+        """
+
+    html_page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{esc_title} — {esc_company}</title>
+    <style>
+        :root {{
+            --bg: #0c1017;
+            --surface: #141b24;
+            --surface-raised: #1c2533;
+            --border: #243042;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #5695F5;
+            --accent-rgb: 86, 149, 245;
+            --success: #238636;
+        }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            background: var(--bg);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            padding: 1.5rem;
+        }}
+        .header {{
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }}
+        .header-left {{
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }}
+        .badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--accent);
+            background: rgba(var(--accent-rgb), 0.12);
+            padding: 2px 8px;
+            border-radius: 4px;
+            width: fit-content;
+        }}
+        .title {{
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #ffffff;
+        }}
+        .meta {{
+            font-size: 13px;
+            color: var(--text-secondary);
+        }}
+        .meta strong {{ color: var(--text-primary); }}
+        .actions {{
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }}
+        .btn {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.45rem 0.9rem;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: 6px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            border: 1px solid var(--border);
+            background: var(--surface-raised);
+            color: var(--text-primary);
+        }}
+        .btn:hover {{
+            background: var(--border);
+            color: #fff;
+        }}
+        .btn.primary {{
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #ffffff;
+        }}
+        .btn.primary:hover {{
+            opacity: 0.92;
+        }}
+        .content-card {{
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+        }}
+        .content-card h3 {{
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }}
+        .description {{
+            font-size: 14px;
+            color: #c9d1d9;
+            word-break: break-word;
+        }}
+        .description p {{
+            margin-bottom: 1rem;
+            white-space: pre-wrap;
+        }}
+        .empty-state {{
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-secondary);
+        }}
+        .empty-state p strong {{
+            color: var(--text-primary);
+            font-size: 15px;
+        }}
+        .empty-state .sub {{
+            margin: 0.5rem 0 1.25rem;
+            font-size: 13px;
+        }}
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <span class="badge">{esc_source}</span>
+            <h1 class="title">{esc_title}</h1>
+            <div class="meta">
+                <strong>{esc_company}</strong> {f"· {esc_location}" if esc_location else ""}
+            </div>
+        </div>
+        <div class="actions">
+            <a class="btn primary" href="{esc_link}" target="_blank" rel="noopener noreferrer">
+                Open in New Tab ↗
+            </a>
+        </div>
+    </header>
+
+    <main class="content-card">
+        <h3>Job Description</h3>
+        <div class="description">
+            {body_content}
+        </div>
+    </main>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html_page)
 
 
 @app.post("/api/jobs/{source}/{job_id}/description")
@@ -497,6 +813,7 @@ def _job_payload(job: Job) -> dict:
             if has_description
             else None
         ),
+        "applied": bool(getattr(job, "applied", False)),
         "urls": urls,
     }
 

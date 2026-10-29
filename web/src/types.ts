@@ -127,6 +127,7 @@ export interface JobListing {
   has_pdf: boolean;
   has_description: boolean;
   description_url: string | null;
+  applied?: boolean;
   urls: {
     tex: string | null;
     pdf: string | null;

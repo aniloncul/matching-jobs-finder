@@ -261,6 +261,8 @@ class GoogleSheetSink(Sink):
                 return row[i].strip() if i is not None and i < len(row) else ""
 
             try:
+                applied_val = value("Applied").lower()
+                applied = applied_val in ("applied", "yes", "true", "y", "1")
                 jobs.append(
                     Job(
                         company=value("Company Name"),
@@ -275,11 +277,39 @@ class GoogleSheetSink(Sink):
                         location=value("Location") or None,
                         search_query=value("Search Query"),
                         scraped_at=value("Scraped At") or now_iso(),
+                        applied=applied,
                     )
                 )
             except Exception:
                 continue
         return list(reversed(jobs))[: max(0, limit)]
+
+    def update_job_applied(self, source: str, job_id: str, applied: bool) -> bool:
+        if self._jobs is None:
+            self.prepare()
+        assert self._jobs is not None
+        self._ensure_headers(self._jobs, JOB_HEADERS)
+        rows = self._jobs.get_all_values()
+        if len(rows) < 2:
+            return False
+        headers = rows[0]
+        index = {header: i for i, header in enumerate(headers)}
+        applied_col = index.get("Applied")
+        source_col = index.get("Source")
+        id_col = index.get("Job ID")
+        if applied_col is None or source_col is None or id_col is None:
+            return False
+        clean_src = source.strip().lower()
+        clean_id = job_id.strip()
+        for row_number, row in enumerate(rows[1:], start=2):
+            def value(column: int | None) -> str:
+                return row[column].strip() if column is not None and column < len(row) else ""
+
+            if value(source_col).lower() == clean_src and value(id_col) == clean_id:
+                val = "Applied" if applied else "Will Apply"
+                self._jobs.update_cell(row_number, applied_col + 1, val)
+                return True
+        return False
 
     def save_description(self, source: str, job_id: str, description: str) -> bool:
         if self._jobs is None:

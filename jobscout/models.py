@@ -60,6 +60,7 @@ class Job(BaseModel):
     location: str | None = None
     search_query: str = ""
     scraped_at: str = Field(default_factory=now_iso)
+    applied: bool = False
 
     def key(self) -> tuple[str, str]:
         return (self.source.value, self.job_id)
@@ -78,6 +79,7 @@ class Job(BaseModel):
             "Location": self.location or "",
             "Search Query": self.search_query,
             "Scraped At": self.scraped_at,
+            "Applied": "Applied" if self.applied else "Will Apply",
         }
 
 

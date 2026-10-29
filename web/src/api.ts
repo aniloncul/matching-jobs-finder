@@ -66,6 +66,20 @@ export function deleteJob(
   );
 }
 
+export function updateJobApplied(
+  source: string,
+  jobId: string,
+  applied: boolean,
+): Promise<{ status: string; updated: boolean; source: string; job_id: string; applied: boolean }> {
+  return request(
+    `/api/jobs/${encodeURIComponent(source)}/${encodeURIComponent(jobId)}/applied`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ applied }),
+    },
+  );
+}
+
 export function saveJobDescription(
   source: string,
   jobId: string,
@@ -81,6 +95,23 @@ export function saveJobDescription(
   return request(`/api/jobs/${source}/${jobId}/description?refresh=${refresh ? "true" : "false"}`, {
     method: "POST",
   });
+}
+
+export async function fetchJobDescriptionText(source: string, jobId: string): Promise<string> {
+  const response = await fetch(
+    `/api/jobs/${encodeURIComponent(source)}/${encodeURIComponent(jobId)}/description`,
+  );
+  if (!response.ok) {
+    let detail = `Error ${response.status}: ${response.statusText}`;
+    try {
+      const err = await response.json();
+      if (err.detail) detail = err.detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  return response.text();
 }
 
 export function generateCoverLetter(

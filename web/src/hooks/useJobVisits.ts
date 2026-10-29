@@ -71,7 +71,21 @@ export function useJobVisits() {
     });
   }, []);
 
-  return { visits, recordVisit };
+  const latestVisitedKey = (() => {
+    let latestKey: string | null = null;
+    let latestTime = 0;
+    for (const [key, visit] of Object.entries(visits)) {
+      if (!visit.lastVisited) continue;
+      const t = new Date(visit.lastVisited).getTime();
+      if (!Number.isNaN(t) && t > latestTime) {
+        latestTime = t;
+        latestKey = key;
+      }
+    }
+    return latestKey;
+  })();
+
+  return { visits, recordVisit, latestVisitedKey };
 }
 
 export function formatVisitTime(value: string): string {

@@ -23,6 +23,7 @@ JOB_HEADERS = [
     "Location",
     "Search Query",
     "Scraped At",
+    "Applied",
 ]
 
 RUN_HEADERS = [
@@ -216,6 +217,32 @@ class LocalSink(Sink):
         temporary.replace(self.jobs_csv)
         return True
 
+    def update_job_applied(self, source: str, job_id: str, applied: bool) -> bool:
+        if not self.jobs_csv.exists():
+            return False
+        self._migrate_headers()
+        with self.jobs_csv.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            headers = reader.fieldnames or JOB_HEADERS
+            rows = list(reader)
+        changed = False
+        for row in rows:
+            if (
+                (row.get("Source") or "").strip().lower() == source.lower()
+                and (row.get("Job ID") or "").strip() == job_id
+            ):
+                row["Applied"] = "Applied" if applied else "Will Apply"
+                changed = True
+        if not changed:
+            return False
+        temporary = self.jobs_csv.with_name(f".{self.jobs_csv.name}.tmp")
+        with temporary.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=headers, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+        temporary.replace(self.jobs_csv)
+        return True
+
     def record_run(self, summary: dict) -> None:
         row = {
             "Run ID": summary.get("run_id", ""),
@@ -242,6 +269,8 @@ def _format_ts(value: float | None) -> str:
 
 def _job_from_row(row: dict[str, str]) -> Job:
     source = (row.get("Source") or "").strip().lower()
+    applied_val = (row.get("Applied") or "").strip().lower()
+    applied = applied_val in ("applied", "yes", "true", "y", "1")
     return Job(
         company=(row.get("Company Name") or "").strip(),
         title=(row.get("Job Title") or "").strip(),
@@ -255,4 +284,5 @@ def _job_from_row(row: dict[str, str]) -> Job:
         location=(row.get("Location") or "").strip() or None,
         search_query=(row.get("Search Query") or "").strip(),
         scraped_at=(row.get("Scraped At") or "").strip() or now_iso(),
+        applied=applied,
     )
