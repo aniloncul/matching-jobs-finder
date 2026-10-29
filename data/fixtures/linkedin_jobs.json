@@ -1,0 +1,74 @@
+[
+  {
+    "company": "Northstar Labs",
+    "title": "Senior AI Engineer",
+    "link": "https://www.linkedin.com/jobs/view/3901000001",
+    "posted_date": "2026-10-19",
+    "source": "linkedin",
+    "posted_text": "1 day ago",
+    "estimated": true,
+    "job_id": "3901000001",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Helix Systems",
+    "title": "Applied AI Engineer",
+    "link": "https://www.linkedin.com/jobs/view/3901000002",
+    "posted_date": "2026-10-19",
+    "source": "linkedin",
+    "posted_text": "1 day ago",
+    "estimated": true,
+    "job_id": "3901000002",
+    "location": "New York, NY (Remote)",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Arcadia AI",
+    "title": "LLM Platform Engineer",
+    "link": "https://www.linkedin.com/jobs/view/3901000003",
+    "posted_date": "2026-10-19",
+    "source": "linkedin",
+    "posted_text": "22 hours ago",
+    "estimated": true,
+    "job_id": "3901000003",
+    "location": "San Francisco, CA (Remote)",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Quanta Works",
+    "title": "Founding AI Engineer",
+    "link": "https://www.linkedin.com/jobs/view/3901000004",
+    "posted_date": "2026-10-19",
+    "source": "linkedin",
+    "posted_text": "18 hours ago",
+    "estimated": true,
+    "job_id": "3901000004",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Signal Foundry",
+    "title": "Machine Learning Engineer",
+    "link": "https://www.linkedin.com/jobs/view/3901000005",
+    "posted_date": "2026-10-19",
+    "source": "linkedin",
+    "posted_text": "14 hours ago",
+    "estimated": true,
+    "job_id": "3901000005",
+    "location": "Austin, TX (Remote)",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Meridian Compute",
+    "title": "AI Solutions Engineer",
+    "link": "https://www.linkedin.com/jobs/view/3901000006",
+    "posted_date": "2026-10-20",
+    "source": "linkedin",
+    "posted_text": "6 hours ago",
+    "estimated": true,
+    "job_id": "3901000006",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  }
+]

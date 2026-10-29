@@ -1,0 +1,61 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jobscout-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  init-ollama:
+    image: curlimages/curl:latest
+    container_name: jobscout-init-ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./docker/init-ollama.sh:/init-ollama.sh:ro
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - PULL_MODELS=bge-m3 qwen2.5:7b
+    entrypoint: ["/bin/sh", "/init-ollama.sh"]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jobscout-app
+    depends_on:
+      init-ollama:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - JOBSCOUT_HOST=0.0.0.0
+      - JOBSCOUT_PORT=8000
+      - COVER_LETTER_BASE_URL=http://ollama:11434/v1
+      - COVER_LETTER_API_KEY=ollama
+      - COVER_LETTER_MODEL=qwen2.5:7b
+      - COVER_LETTER_EMBED_BASE_URL=http://ollama:11434
+      - COVER_LETTER_EMBED_MODEL=bge-m3
+      - COVER_LETTER_VISION_MODEL=qwen2.5:7b
+      - COVER_LETTER_TIMEOUT=180
+      - COVER_LETTER_COMPILE_PDF=1
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - browser_profiles:/app/.browser-profiles
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  browser_profiles:

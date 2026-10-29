@@ -1,0 +1,26 @@
+[
+  {
+    "name": "n8n_python_automation_engineer",
+    "description": "Wir suchen einen Automation Engineer (m/w/d) in Berlin.\n\nDas bringst du mit:\n- Fundierte Erfahrung mit n8n oder Make für Prozessautomatisierung\n- Solide Python-Kenntnisse zur Entwicklung von Custom Nodes und API-Integrationen\n- Erfahrung mit Docker und Linux-Servern\n- Deutsch auf C1-Niveau\n\nWir bieten:\n- 30 Tage Urlaub\n- Remote Option",
+    "expected_top_keywords": ["n8n", "python", "docker"],
+    "profile_bullets": [
+      "Entwickelte komplexe Workflow-Automatisierungen mit n8n und Python zur Synchronisation von ERP- und CRM-Systemen.",
+      "Optimierte Docker-Container und CI/CD-Pipelines auf Ubuntu-Servern.",
+      "Erstellte Marketingkampagnen auf TikTok und Instagram.",
+      "Verfasste technische Dokumentationen auf Deutsch und Englisch."
+    ],
+    "ground_truth_matching_index": [0, 1]
+  },
+  {
+    "name": "data_engineer_pipeline",
+    "description": "Senior Data Engineer needed in Berlin.\n\nRequirements:\n- 3+ years experience with PostgreSQL, clickhouse, or SQL databases\n- Proven track record building streaming pipelines using Kafka or RabbitMQ\n- Python proficiency (FastAPI, Pandas, Polars)\n- Strong communication skills in English",
+    "expected_top_keywords": ["postgresql", "kafka", "python"],
+    "profile_bullets": [
+      "Built resilient ETL pipelines processing 5M+ daily events using PostgreSQL and RabbitMQ message brokers.",
+      "Developed high-performance REST APIs using FastAPI and Python.",
+      "Conducted user research interviews and Figma prototypes.",
+      "Mentored junior engineers and led sprint planning sessions."
+    ],
+    "ground_truth_matching_index": [0, 1]
+  }
+]

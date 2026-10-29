@@ -1,0 +1,32 @@
+sources:
+  linkedin:
+    enabled: true
+    query: 'n8n, low-code, no-code, "workflow automation", Zapier, Make.com'
+    location: "Deutschland"
+    date_posted_hours: 24
+    workplace: any
+    experience: mid
+    max_jobs: 25
+  indeed:
+    enabled: true
+    base_url: "https://de.indeed.com"
+    query: 'n8n, low-code, no-code, "workflow automation", Zapier, Make.com'
+    location: "Deutschland"
+    fromage: 1
+    radius: 25
+    remote: false
+    skip_sponsored: true
+    max_jobs: 25
+
+dedupe_cross_source: false
+sink: auto
+
+browser:
+  headless: false
+  channel: chrome
+  page_timeout_ms: 45000
+  slow_mo_ms: 0
+
+ui:
+  host: 127.0.0.1
+  port: 8000

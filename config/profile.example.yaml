@@ -1,0 +1,48 @@
+name: "Your Name"
+headline: "AI Engineer"
+email: "you@example.com"
+phone: "+49 000 000000"
+address: "Street 1"
+postal_code: "12345"
+city: "Berlin"
+country: "Germany"
+linkedin: "https://www.linkedin.com/in/your-profile"
+github: "https://github.com/your-profile"
+website: ""
+summary: "Short professional summary focused on your strongest experience."
+motivation: |
+  Two to four sentences in your own words: why this kind of role fits you,
+  what you enjoy about it and what you bring that other applicants do not.
+  This becomes the door opener of every cover letter.
+skills:
+  - "Python"
+  - "n8n"
+  - "Workflow automation"
+soft_skills:
+  - "Structured communication"
+  - "Stakeholder collaboration"
+experience:
+  - company: "Example GmbH"
+    role: "AI Engineer"
+    start: "2023"
+    end: "present"
+    location: "Berlin"
+    achievements:
+      - "Built an automation workflow that reduced manual work by 30%."
+      - "Integrated LLM-based document processing for internal teams."
+education:
+  - institution: "Example University"
+    degree: "M.Sc. Computer Science"
+    start: "2020"
+    end: "2022"
+    location: "Berlin"
+languages:
+  - "German — fluent"
+  - "English — professional"
+certifications:
+  - "Example certification"
+earliest_start: "2026-03-01"
+notice_period_months: 1
+confidential_application: false
+cv_text: |
+  Optional: paste the full CV text here. The generator uses it as additional context.

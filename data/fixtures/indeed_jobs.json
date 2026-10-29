@@ -1,0 +1,74 @@
+[
+  {
+    "company": "Cobalt Intelligence",
+    "title": "AI Engineer",
+    "link": "https://www.indeed.com/viewjob?jk=8f3a1c2d9e4b7a10",
+    "posted_date": "2026-10-19",
+    "source": "indeed",
+    "posted_text": "Posted 1 day ago",
+    "estimated": true,
+    "job_id": "8f3a1c2d9e4b7a10",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Lumen Grid",
+    "title": "Senior Applied Scientist",
+    "link": "https://www.indeed.com/viewjob?jk=2b7d4e9a1c6f8035",
+    "posted_date": "2026-10-19",
+    "source": "indeed",
+    "posted_text": "Posted 1 day ago",
+    "estimated": true,
+    "job_id": "2b7d4e9a1c6f8035",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Fieldnote",
+    "title": "GenAI Engineer",
+    "link": "https://www.indeed.com/viewjob?jk=5a1e8c3b7d2f9046",
+    "posted_date": "2026-10-19",
+    "source": "indeed",
+    "posted_text": "Posted 20 hours ago",
+    "estimated": true,
+    "job_id": "5a1e8c3b7d2f9046",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Beacon Stack",
+    "title": "Machine Learning Platform Engineer",
+    "link": "https://www.indeed.com/viewjob?jk=9c4f2a6d8e1b3057",
+    "posted_date": "2026-10-19",
+    "source": "indeed",
+    "posted_text": "Posted 16 hours ago",
+    "estimated": true,
+    "job_id": "9c4f2a6d8e1b3057",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Harbor Logic",
+    "title": "AI Automation Engineer",
+    "link": "https://www.indeed.com/viewjob?jk=7d2b9e5a3c8f1064",
+    "posted_date": "2026-10-20",
+    "source": "indeed",
+    "posted_text": "Posted 9 hours ago",
+    "estimated": true,
+    "job_id": "7d2b9e5a3c8f1064",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  },
+  {
+    "company": "Tessera Robotics",
+    "title": "Deep Learning Engineer",
+    "link": "https://www.indeed.com/viewjob?jk=4e8a1d7c2b9f3056",
+    "posted_date": "2026-10-20",
+    "source": "indeed",
+    "posted_text": "Posted 3 hours ago",
+    "estimated": true,
+    "job_id": "4e8a1d7c2b9f3056",
+    "location": "Remote",
+    "search_query": "AI Engineer"
+  }
+]

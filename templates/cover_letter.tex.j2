@@ -1,0 +1,71 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[{{ babel_language }}]{babel}
+\usepackage[a4paper,left=2.5cm,right=2.0cm,top=2.0cm,bottom=2.0cm]{geometry}
+\usepackage{lmodern}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.65em}
+
+\begin{document}
+
+% --- 1. Absenderblock (rechtsbündig) ---
+\begin{flushright}
+{\textbf{ {{ profile.name|tex }} }}\\[0.25em]
+{% if profile.headline %}{\small {{ profile.headline|tex }}}\\[0.2em]{% endif %}
+{% if profile.address %}{{ profile.address|tex }}\\[0.15em]{% endif %}
+{% if profile.phone %}{{ profile.phone|tex }}\\[0.15em]{% endif %}
+{% if profile.email %}{{ profile.email|tex }}{% endif %}
+\end{flushright}
+
+\vspace{0.8em}
+
+% --- 3. Empfängerblock ---
+{{ recipient_company|tex }}\\
+{% if recipient_department %}{{ recipient_department|tex }}\\{% endif %}
+{% if recipient_person %}{{ recipient_person|tex }}\\{% endif %}
+{% if not recipient_department and not recipient_person and recipient_extra %}{{ recipient_extra|tex }}\\{% endif %}
+
+\vspace{1.2em}
+
+% --- 4. Datum (rechtsbündig) ---
+\hfill {{ date_line|tex }}
+
+\vspace{1.6em}
+
+% --- 5. Betreffzeile ---
+{\large\bfseries {{ subject|tex }}}
+
+\vspace{1.2em}
+
+% --- 6. Anrede ---
+{{ salutation|tex }}
+
+% --- Introduction: motivation and direct link to the advertised role ---
+{{ intro|tex }}
+
+% --- Main part: company reference, requirements analysis, profile match ---
+{% for paragraph in main_paragraphs %}
+{{ paragraph|tex }}
+
+{% endfor %}
+% --- Conclusion: motivation, interview willingness, optional start date and confidentiality ---
+{{ conclusion|tex }}
+
+\vspace{1.0em}
+
+{{ closing|tex }}
+
+\vspace{2.2em}
+
+{{ profile.name|tex }}
+
+\vfill
+
+{\bfseries Anlagen}
+
+\end{document}
