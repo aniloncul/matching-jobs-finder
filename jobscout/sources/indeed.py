@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 
 from jobscout.browser import BrowserError, browser_context
 from jobscout.config import Settings
+from jobscout.control import RunCancelled
 from jobscout.control import RunControl
 from jobscout.models import Job
 from jobscout.parsers.indeed import parse_indeed_html
@@ -170,7 +171,7 @@ class IndeedSource(BaseSource):
                 return []
             self.status(f"Indeed · {len(jobs)} jobs extracted", 1.0)
             return jobs
-        except SourceError:
+        except (SourceError, RunCancelled):
             raise
         except BrowserError as exc:
             raise SourceError(str(exc)) from exc
@@ -191,7 +192,7 @@ class IndeedSource(BaseSource):
 
         self.emit(
             "log",
-            "Cloudflare / Indeed verification challenge detected. "
+            text="Cloudflare / Indeed verification challenge detected. "
             "Please solve the captcha in the open Chrome browser window...",
         )
 
@@ -213,29 +214,53 @@ class IndeedSource(BaseSource):
                 f"Indeed · Cloudflare challenge! Solve in Chrome ({remaining}s)",
                 0.5,
             )
-            self.control.checkpoint("indeed challenge wait")
+            # NOTE: do NOT call self.control.checkpoint() here — RunCancelled would
+            # break the wait loop and skip the cookie-clear fallback entirely.
             page.wait_for_timeout(1000)
             if not _indeed_blocked(page):
-                self.status("Indeed · Challenge resolved! Continuing...", 0.5)
-                self.emit("log", "Indeed verification challenge resolved.")
-                return True
+                # Confirm resolution: wait 2s and re-check in case it's mid-redirect
+                page.wait_for_timeout(2000)
+                if not _indeed_blocked(page):
+                    self.status("Indeed · Challenge resolved! Continuing...", 0.5)
+                    self.emit("log", text="Indeed verification challenge resolved.")
+                    return True
 
         # Second fallback: clear session cookies and retry with a clean context
         self.status("Indeed · Clearing cookies & retrying clean session...", 0.5)
         self.emit(
             "log",
-            "Challenge still active after 45s. Clearing cookies and retrying with a fresh session...",
+            text="Challenge still active after 45s. Clearing cookies and retrying with a fresh session...",
         )
         try:
             context.clear_cookies()
             page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(4000)
             if not _indeed_blocked(page):
                 self.status("Indeed · Clean session bypass succeeded! Continuing...", 0.5)
-                self.emit("log", "Clean session successfully bypassed the challenge.")
+                self.emit("log", text="Clean session successfully bypassed the challenge.")
                 return True
+            # Cookie clear didn't help — bring Chrome to front for one more manual attempt
+            self.status("Indeed · Cookie clear failed — waiting 20s for manual solve...", 0.5)
+            self.emit("log", text="Cookie clear didn't resolve challenge. Giving 20s for manual solve.")
+            try:
+                page.bring_to_front()
+                subprocess.run(
+                    ["osascript", "-e", 'tell application "Google Chrome" to activate'],
+                    check=False,
+                    capture_output=True,
+                )
+            except Exception:
+                pass
+            for _ in range(20):
+                page.wait_for_timeout(1000)
+                if not _indeed_blocked(page):
+                    page.wait_for_timeout(2000)
+                    if not _indeed_blocked(page):
+                        self.status("Indeed · Challenge resolved after cookie clear! Continuing...", 0.5)
+                        self.emit("log", text="Challenge resolved after cookie clear.")
+                        return True
         except Exception as exc:
-            self.emit("log", f"Cookie clear retry encountered error: {exc}")
+            self.emit("log", text=f"Cookie clear retry encountered error: {exc}")
 
         return False
 
