@@ -65,6 +65,27 @@ export function AgentAvatar({ id }: AvatarProps) {
     );
   }
 
+  if (id === "verifier") {
+    return (
+      <Frame>
+        <path d="M32 6L52 13V28C52 41 43 51 32 57C21 51 12 41 12 28V13Z" />
+        <path d="M22 30L29 37L43 22" />
+        <path d="M12 45L6 51M52 45L58 51" />
+      </Frame>
+    );
+  }
+
+  if (id === "analyst") {
+    return (
+      <Frame>
+        <rect x="10" y="12" width="44" height="34" />
+        <path d="M16 40V30M24 40V24M32 40V33M40 40V21M48 40V27" />
+        <path d="M10 46H54" />
+        <path d="M32 46V58M22 58H42" />
+      </Frame>
+    );
+  }
+
   const letter = id === "linkedin" ? "L" : "I";
   return (
     <Frame>

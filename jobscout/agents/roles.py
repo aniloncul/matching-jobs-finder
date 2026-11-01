@@ -68,6 +68,76 @@ class Scout(AgentRole):
         self.send("coordinator", "error", message)
 
 
+class Verifier(AgentRole):
+    """Liveness and deadline checks.  Reports to the Analyst, never to a source."""
+
+    def __init__(self, emit: Emit) -> None:
+        super().__init__("verifier", "Verifier", emit)
+
+    def checking_deadlines(self, count: int) -> None:
+        self.status("working", f"Reading deadlines · {count} jobs", 0.2)
+
+    def deadlines_done(self, counts: dict[str, int]) -> None:
+        expired = counts.get("expired", 0)
+        closing = counts.get("closing_soon", 0)
+        unparseable = counts.get("unparseable", 0)
+        self.log(
+            f"Deadlines · {closing} closing soon · {expired} expired · "
+            f"{unparseable} unparseable"
+        )
+        self.send(
+            "analyst",
+            "result",
+            f"{closing} closing soon · {expired} expired",
+        )
+
+    def checking_liveness(self, count: int) -> None:
+        self.status("working", f"Probing liveness · {count} jobs", 0.5)
+
+    def liveness_done(self, counts: dict[str, int]) -> None:
+        active = counts.get("active", 0)
+        expired = counts.get("expired", 0)
+        uncertain = counts.get("uncertain", 0)
+        self.log(
+            f"Liveness · {active} active · {expired} expired · {uncertain} uncertain"
+        )
+        self.send(
+            "analyst",
+            "status",
+            f"{active} active · {expired} expired · {uncertain} uncertain",
+        )
+
+    def finished(self, message: str) -> None:
+        self.status("done", message, 1.0)
+
+    def failed(self, message: str) -> None:
+        self.status("error", message)
+        self.send("coordinator", "error", message)
+
+
+class Analyst(AgentRole):
+    """Deterministic fit scoring.  Consumes verified jobs, hands them to the Registrar."""
+
+    def __init__(self, emit: Emit) -> None:
+        super().__init__("analyst", "Analyst", emit)
+
+    def ranking(self, count: int) -> None:
+        self.status("working", f"Scoring fit · {count} jobs", 0.6)
+
+    def ranked(self, count: int, min_score: int) -> None:
+        self.log(f"Fit scoring complete · {count} jobs kept at ≥{min_score}")
+        self.status("done", f"{count} jobs ready to write", 1.0)
+        self.send("registrar", "result", f"{count} ranked jobs")
+
+    def skipped(self, message: str) -> None:
+        self.log(message)
+        self.status("waiting", "Fit scoring disabled")
+
+    def failed(self, message: str) -> None:
+        self.status("error", message)
+        self.send("coordinator", "error", message)
+
+
 class Registrar(AgentRole):
     def __init__(self, emit: Emit) -> None:
         super().__init__("registrar", "Registrar", emit)
@@ -93,3 +163,18 @@ class Registrar(AgentRole):
             "status",
             f"{new_count} new rows · {skipped} duplicates skipped",
         )
+
+
+class Writer(AgentRole):
+    def __init__(self, emit: Emit) -> None:
+        super().__init__("writer", "Cover Writer", emit)
+
+    def idle(self) -> None:
+        self.status("waiting", "Waiting for a job")
+
+    def drafting(self, company: str, title: str) -> None:
+        self.status("working", f"Writing letter for {company} · {title}", 0.4)
+
+    def saved(self, company: str) -> None:
+        self.status("done", f"Letter saved for {company}", 1.0)
+        self.send("coordinator", "result", f"Cover letter ready for {company}")

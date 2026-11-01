@@ -9,7 +9,7 @@ from jobscout.control import RunControl
 from jobscout.models import Job
 from jobscout.parsers.indeed import parse_indeed_html
 from jobscout.queries import per_query_limit, split_queries
-from jobscout.sources.base import BaseSource, Emit, SourceError
+from jobscout.sources.base import BaseSource, Emit, SourceError, SourceResult
 
 
 class IndeedSource(BaseSource):
@@ -24,19 +24,21 @@ class IndeedSource(BaseSource):
     ) -> None:
         super().__init__(settings, control, emit)
 
-    def search(self) -> list[Job]:
+    def search(self) -> SourceResult:
         cfg = self.settings.sources.indeed
         queries = split_queries(cfg.query) or [cfg.query]
         limit = per_query_limit(cfg.max_jobs, len(queries))
         jobs: list[Job] = []
         seen: set[str] = set()
-        _terminal_error: str | None = None  # set if we must raise after browser closes
+        pages_fetched = 0
+        status: str = "ok"
+        message: str | None = None
 
         self.status("Opening visible Indeed browser", 0.05)
         try:
             with browser_context(self.settings, "indeed") as (context, page):
                 for query_index, query in enumerate(queries, start=1):
-                    if len(jobs) >= cfg.max_jobs or _terminal_error:
+                    if len(jobs) >= cfg.max_jobs or status != "ok":
                         break
                     self.control.checkpoint(f"indeed query {query_index}")
                     target = min(limit, cfg.max_jobs - len(jobs))
@@ -53,11 +55,13 @@ class IndeedSource(BaseSource):
                             0.08 + 0.84 * (query_index - 1) / len(queries),
                         )
                         page.goto(url, wait_until="domcontentloaded")
+                        pages_fetched += 1
                         page.wait_for_timeout(1800)
 
                         if _indeed_signin_wall(page):
                             if page_index == 1:
-                                _terminal_error = (
+                                status = "login_required"
+                                message = (
                                     "Indeed is asking for a signed-in session. Run "
                                     "`make warm-indeed`, sign in once, then retry."
                                 )
@@ -78,7 +82,8 @@ class IndeedSource(BaseSource):
                                         0.92,
                                     )
                                 else:
-                                    _terminal_error = (
+                                    status = "blocked"
+                                    message = (
                                         "Indeed verification challenge could not be resolved. "
                                         "Run `make warm-indeed` or `make reset-indeed`, "
                                         "solve it once, then retry."
@@ -92,7 +97,7 @@ class IndeedSource(BaseSource):
                                 "a.jcs-JobTitle[data-jk]",
                                 timeout=12_000,
                             )
-                        except Exception as exc:
+                        except Exception:
                             if _indeed_blocked(page):
                                 resolved = self._handle_challenge_fallback(context, page, url)
                                 if not resolved:
@@ -102,7 +107,8 @@ class IndeedSource(BaseSource):
                                             0.92,
                                         )
                                     else:
-                                        _terminal_error = (
+                                        status = "blocked"
+                                        message = (
                                             "Indeed verification challenge could not be resolved. "
                                             "Run `make warm-indeed` or `make reset-indeed`, "
                                             "solve it once, then retry."
@@ -118,7 +124,7 @@ class IndeedSource(BaseSource):
                                     )
                                 except Exception:
                                     break
-                            elif _indeed_no_results(page) or jobs:
+                            elif _indeed_no_results(page):
                                 self.status(
                                     f"Indeed · no jobs for {query!r}",
                                     0.92,
@@ -151,7 +157,8 @@ class IndeedSource(BaseSource):
                                     except Exception:
                                         pass
                                 else:
-                                    _terminal_error = (
+                                    status = "layout_changed"
+                                    message = (
                                         "No Indeed job cards appeared after cookie reset. "
                                         "The page may be blocked or the markup changed."
                                     )
@@ -180,22 +187,32 @@ class IndeedSource(BaseSource):
                         if new_count == 0:
                             break
 
-            # browser is now closed — safe to raise if we hit a hard error
-            if _terminal_error and not jobs:
-                raise SourceError(_terminal_error)
-
-            jobs = jobs[: cfg.max_jobs]
-            if not jobs:
-                self.status("Indeed returned no jobs", 1.0)
-                return []
-            self.status(f"Indeed · {len(jobs)} jobs extracted", 1.0)
-            return jobs
-        except (SourceError, RunCancelled):
+        except RunCancelled:
             raise
+        except SourceError as exc:
+            status, message = "error", str(exc)
         except BrowserError as exc:
-            raise SourceError(str(exc)) from exc
+            status, message = "error", str(exc)
         except Exception as exc:
-            raise SourceError(f"Indeed run failed: {exc}") from exc
+            status, message = "error", f"Indeed run failed: {exc}"
+
+        jobs = jobs[: cfg.max_jobs]
+        if status == "ok":
+            status = "ok" if jobs else "empty"
+        if status in {"ok", "empty"}:
+            self.status(
+                f"Indeed · {len(jobs)} jobs extracted" if jobs else "Indeed returned no jobs",
+                1.0,
+            )
+        else:
+            self.log(message or status, level="error")
+            self.status(message or f"Indeed · {status}", None, status="error")
+        return self.finish(
+            jobs,
+            status=status,  # type: ignore[arg-type]
+            message=message,
+            pages_fetched=pages_fetched,
+        )
 
     def _handle_challenge_fallback(self, context, page, url: str) -> bool:
         """Fallback when Cloudflare/Indeed verification challenge is detected.

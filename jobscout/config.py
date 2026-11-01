@@ -59,6 +59,24 @@ class UIConfig(BaseModel):
     port: int = 8000
 
 
+class LivenessConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    max_checks: int = 25
+    timeout_seconds: float = 10.0
+    max_attempts: int = 3
+    retry_after_hours: float = 48.0
+
+
+class FitConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    max_jobs: int = 25
+    min_score: int = 60
+
+
 class CoverLetterConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -100,6 +118,8 @@ class Settings(BaseModel):
     sink: Literal["auto", "local", "google"] = "auto"
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    liveness: LivenessConfig = Field(default_factory=LivenessConfig)
+    fit: FitConfig = Field(default_factory=FitConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
     root: Path = ROOT
     google_sheet_id: str | None = None
@@ -150,6 +170,36 @@ def load_settings(path: str | Path | None = None) -> Settings:
     raw["google_sheet_url"] = os.getenv("GOOGLE_SHEET_URL", "").strip() or None
     raw["local_jobs_csv"] = ROOT / "data" / "jobs.csv"
     raw["local_runs_csv"] = ROOT / "data" / "runs.csv"
+
+    raw.setdefault("liveness", {})
+    liveness = raw["liveness"]
+    if os.getenv("JOBSCOUT_LIVENESS_ENABLED"):
+        liveness["enabled"] = os.getenv("JOBSCOUT_LIVENESS_ENABLED", "0").lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+    if os.getenv("JOBSCOUT_LIVENESS_MAX_CHECKS"):
+        liveness["max_checks"] = max(0, int(os.getenv("JOBSCOUT_LIVENESS_MAX_CHECKS", "25")))
+    if os.getenv("JOBSCOUT_LIVENESS_TIMEOUT"):
+        liveness["timeout_seconds"] = max(1.0, float(os.getenv("JOBSCOUT_LIVENESS_TIMEOUT", "10")))
+    if os.getenv("JOBSCOUT_LIVENESS_MAX_ATTEMPTS"):
+        liveness["max_attempts"] = max(1, int(os.getenv("JOBSCOUT_LIVENESS_MAX_ATTEMPTS", "3")))
+    if os.getenv("JOBSCOUT_LIVENESS_RETRY_HOURS"):
+        liveness["retry_after_hours"] = max(0.0, float(os.getenv("JOBSCOUT_LIVENESS_RETRY_HOURS", "48")))
+
+    raw.setdefault("fit", {})
+    fit = raw["fit"]
+    if os.getenv("JOBSCOUT_FIT_ENABLED"):
+        fit["enabled"] = os.getenv("JOBSCOUT_FIT_ENABLED", "0").lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+    if os.getenv("JOBSCOUT_FIT_MAX_JOBS"):
+        fit["max_jobs"] = max(0, int(os.getenv("JOBSCOUT_FIT_MAX_JOBS", "25")))
+    if os.getenv("JOBSCOUT_FIT_MIN_SCORE"):
+        fit["min_score"] = max(0, min(100, int(os.getenv("JOBSCOUT_FIT_MIN_SCORE", "60"))))
 
     raw.setdefault("cover_letter", {})
     cover_letter = raw["cover_letter"]

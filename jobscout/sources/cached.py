@@ -5,7 +5,7 @@ import json
 from jobscout.config import Settings
 from jobscout.control import RunControl
 from jobscout.models import Job
-from jobscout.sources.base import BaseSource, Emit, SourceError
+from jobscout.sources.base import BaseSource, Emit, SourceError, SourceResult
 
 
 class CachedSource(BaseSource):
@@ -20,7 +20,7 @@ class CachedSource(BaseSource):
         self.source_name = source_name
         self.agent_id = source_name
 
-    def search(self) -> list[Job]:
+    def search(self) -> SourceResult:
         fixture = self.settings.root / "data" / "fixtures" / f"{self.source_name}_jobs.json"
         if not fixture.exists():
             raise SourceError(f"Cached fixture missing: {fixture}")
@@ -43,4 +43,4 @@ class CachedSource(BaseSource):
             )
         self.status(f"Cache loaded · {len(jobs)} jobs", 1.0)
         self.log(f"Finished replay: {len(jobs)} jobs prepared for Registrar")
-        return jobs
+        return self.finish(jobs, status="ok" if jobs else "empty", pages_fetched=0)

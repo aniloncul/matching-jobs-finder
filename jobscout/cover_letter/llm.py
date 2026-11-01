@@ -207,6 +207,60 @@ class CoverLetterLLM:
             )
         return _extract_json(content)
 
+    def score_fit(
+        self,
+        profile_text: str,
+        job: Job,
+        description: str,
+        *,
+        candidate_location: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask the model for the four fit dimensions only.
+
+        The weighted total is computed in :mod:`jobscout.scoring`; this method
+        deliberately returns the raw ratings and never a score.
+        """
+        from jobscout.scoring import FIT_SYSTEM_PROMPT, build_fit_prompt
+
+        if not self.api_key:
+            raise LLMError(
+                "COVER_LETTER_API_KEY is not set. Fit scoring needs an LLM."
+            )
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": FIT_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": build_fit_prompt(
+                        profile_text,
+                        job,
+                        description,
+                        candidate_location=candidate_location,
+                    ),
+                },
+            ],
+            "temperature": 0.0,
+            "max_tokens": 700,
+            "response_format": {"type": "json_object"},
+        }
+        if "nemotron" in self.model.lower():
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        if self.num_ctx > 0 and any(
+            keyword in self.base_url
+            for keyword in ("localhost", "127.0.0.1", "ollama", "::1")
+        ):
+            payload["options"] = {"num_ctx": self.num_ctx}
+
+        data = self._post(payload)
+        try:
+            content = data["choices"][0]["message"].get("content") or ""
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError("Unexpected response from the fit model") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise LLMError("The fit model returned an empty response")
+        return _extract_json(content)
+
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",

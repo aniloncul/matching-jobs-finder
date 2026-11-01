@@ -4,11 +4,11 @@ from urllib.parse import urlencode
 
 from jobscout.browser import BrowserError, browser_context
 from jobscout.config import Settings
-from jobscout.control import RunControl
+from jobscout.control import RunCancelled, RunControl
 from jobscout.models import Job
 from jobscout.parsers.linkedin import CARD_SELECTOR, parse_linkedin_html
 from jobscout.queries import per_query_limit, split_queries
-from jobscout.sources.base import BaseSource, Emit, SourceError
+from jobscout.sources.base import BaseSource, Emit, SourceError, SourceResult
 
 
 class LinkedInSource(BaseSource):
@@ -23,12 +23,15 @@ class LinkedInSource(BaseSource):
     ) -> None:
         super().__init__(settings, control, emit)
 
-    def search(self) -> list[Job]:
+    def search(self) -> SourceResult:
         cfg = self.settings.sources.linkedin
         queries = split_queries(cfg.query) or [cfg.query]
         limit = per_query_limit(cfg.max_jobs, len(queries))
         jobs: list[Job] = []
         seen: set[str] = set()
+        pages_fetched = 0
+        status: str = "ok"
+        message: str | None = None
 
         self.status("Opening visible LinkedIn browser", 0.05)
         try:
@@ -42,31 +45,36 @@ class LinkedInSource(BaseSource):
                         0.05 + 0.7 * (index - 1) / len(queries),
                     )
                     page.goto(_search_url(cfg, query), wait_until="domcontentloaded")
+                    pages_fetched += 1
                     page.wait_for_timeout(2200)
 
                     if _linkedin_blocked(page):
-                        raise SourceError(
+                        status = "login_required"
+                        message = (
                             "LinkedIn is asking for a signed-in session. "
                             "Run `make warm-linkedin`, sign in once, then retry."
                         )
+                        break
 
                     try:
                         page.wait_for_selector(CARD_SELECTOR, timeout=12_000)
-                    except Exception as exc:
+                    except Exception:
                         if _linkedin_blocked(page):
-                            raise SourceError(
-                                "LinkedIn auth wall detected. Run `make warm-linkedin`."
-                            ) from exc
-                        if _linkedin_no_results(page) or jobs:
+                            status = "login_required"
+                            message = "LinkedIn auth wall detected. Run `make warm-linkedin`."
+                            break
+                        if _linkedin_no_results(page):
                             self.status(
                                 f"LinkedIn · no jobs for {query!r}",
                                 0.05 + 0.7 * index / len(queries),
                             )
                             continue
-                        raise SourceError(
+                        status = "layout_changed"
+                        message = (
                             "No LinkedIn job cards appeared. The page may be blocked "
                             "or the markup changed."
-                        ) from exc
+                        )
+                        break
 
                     target = min(limit, cfg.max_jobs - len(jobs))
                     for _ in range(4):
@@ -80,10 +88,14 @@ class LinkedInSource(BaseSource):
                     html = page.content()
                     term_jobs = parse_linkedin_html(html, query)
                     if not term_jobs:
-                        raise SourceError(
+                        if _linkedin_no_results(page):
+                            continue
+                        status = "layout_changed"
+                        message = (
                             "LinkedIn returned no parseable jobs. Check the visible "
-                            "browser for a challenge or sign-in prompt."
+                            "browser for a challenge or a markup change."
                         )
+                        break
 
                     added = 0
                     for job in term_jobs:
@@ -100,18 +112,32 @@ class LinkedInSource(BaseSource):
                     )
 
                 self.control.checkpoint("linkedin parse")
-                jobs = jobs[: cfg.max_jobs]
-                if not jobs:
-                    self.status("LinkedIn returned no jobs", 1.0)
-                    return []
-                self.status(f"LinkedIn · {len(jobs)} jobs extracted", 1.0)
-                return jobs
-        except SourceError:
+        except RunCancelled:
             raise
+        except SourceError as exc:
+            status, message = "error", str(exc)
         except BrowserError as exc:
-            raise SourceError(str(exc)) from exc
+            status, message = "error", str(exc)
         except Exception as exc:
-            raise SourceError(f"LinkedIn run failed: {exc}") from exc
+            status, message = "error", f"LinkedIn run failed: {exc}"
+
+        jobs = jobs[: cfg.max_jobs]
+        if status == "ok":
+            status = "ok" if jobs else "empty"
+        if status in {"ok", "empty"}:
+            self.status(
+                f"LinkedIn · {len(jobs)} jobs extracted" if jobs else "LinkedIn returned no jobs",
+                1.0,
+            )
+        else:
+            self.log(message or status, level="error")
+            self.status(message or f"LinkedIn · {status}", None, status="error")
+        return self.finish(
+            jobs,
+            status=status,  # type: ignore[arg-type]
+            message=message,
+            pages_fetched=pages_fetched,
+        )
 
 
 def _search_url(cfg, query: str | None = None) -> str:

@@ -12,6 +12,7 @@ import type {
   RunState,
   Signal,
   SnapshotEvent,
+  SourceResult,
   Stats,
 } from "../types";
 
@@ -63,6 +64,7 @@ function reduceState(previous: RunState, event: RunEvent): RunState {
         logs: [],
         agent_logs: {},
         agent_status_history: {},
+        source_results: {},
         sheet_url: null,
         sink_kind: null,
       });
@@ -173,6 +175,23 @@ function reduceState(previous: RunState, event: RunEvent): RunState {
         sink_kind: asString(event.kind) || null,
         sheet_url: asString(event.sheet_url) || null,
       });
+    case "source.result": {
+      const agent = asString(event.agent);
+      if (!agent) return withSeq(previous);
+      return withSeq({
+        ...previous,
+        source_results: {
+          ...previous.source_results,
+          [agent]: {
+            status: asString(event.status, "ok") as SourceResult["status"],
+            message: typeof event.message === "string" ? event.message : null,
+            pages_fetched: asNumber(event.pages_fetched),
+            jobs: asNumber(event.jobs),
+            ts: asNumber(event.ts),
+          },
+        },
+      });
+    }
     case "message": {
       const message: FeedMessage = {
         seq: asNumber(event.seq),
@@ -290,6 +309,7 @@ export function useRunStream() {
           ...snapshot.state,
           agent_logs: snapshot.state.agent_logs ?? {},
           agent_status_history: snapshot.state.agent_status_history ?? {},
+          source_results: snapshot.state.source_results ?? {},
         };
       });
       clearSignals();

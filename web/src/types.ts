@@ -1,4 +1,11 @@
-export type AgentId = "coordinator" | "linkedin" | "indeed" | "registrar" | "writer";
+export type AgentId =
+  | "coordinator"
+  | "linkedin"
+  | "indeed"
+  | "verifier"
+  | "analyst"
+  | "registrar"
+  | "writer";
 
 export type AgentStatus =
   | "idle"
@@ -82,10 +89,27 @@ export interface RunState {
   logs: FeedLog[];
   agent_logs: Record<string, FeedLog[]>;
   agent_status_history: Record<string, AgentStatusEntry[]>;
+  source_results: Record<string, SourceResult>;
   sheet_url: string | null;
   sink_kind: string | null;
   error: string | null;
   last_seq: number;
+}
+
+export type SourceStatus =
+  | "ok"
+  | "empty"
+  | "blocked"
+  | "login_required"
+  | "layout_changed"
+  | "error";
+
+export interface SourceResult {
+  status: SourceStatus;
+  message: string | null;
+  pages_fetched: number;
+  jobs: number;
+  ts?: number | null;
 }
 
 export interface SnapshotEvent {
@@ -128,11 +152,31 @@ export interface JobListing {
   has_description: boolean;
   description_url: string | null;
   applied?: boolean;
+  canonical_url?: string | null;
+  requisition_id?: string | null;
+  status?: JobLivenessStatus;
+  expired_reason?: string | null;
+  liveness_checked_at?: string | null;
+  liveness_attempts?: number;
+  deadline?: string | null;
+  deadline_status?: DeadlineStatus;
+  rank_score?: number | null;
+  rank_verdict?: string | null;
+  ranked_at?: string | null;
   urls: {
     tex: string | null;
     pdf: string | null;
   };
 }
+
+export type JobLivenessStatus = "active" | "expired" | "uncertain" | "unknown";
+
+export type DeadlineStatus =
+  | "active"
+  | "closing_soon"
+  | "expired"
+  | "unparseable"
+  | "unknown";
 
 export interface CoverLetter {
   source: "linkedin" | "indeed" | "custom";

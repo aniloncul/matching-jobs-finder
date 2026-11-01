@@ -184,7 +184,12 @@ def read_pdf(path: str | Path) -> PdfDocumentInfo:
             spans: list[TextSpan] = []
             image_area = 0.0
             page_area = max(width * height, 1.0)
-            for obj in page.get_objects(textpage=textpage):
+            try:
+                objects = page.get_objects(textpage=textpage)
+            except TypeError:
+                # pypdfium2 >= 5 dropped the `textpage` kwarg.
+                objects = page.get_objects()
+            for obj in objects:
                 try:
                     bounds = obj.get_bounds()
                 except Exception:

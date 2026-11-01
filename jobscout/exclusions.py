@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from jobscout.config import Settings
-from jobscout.dedupe import fingerprint_values
+from jobscout.dedupe import canonical_url, fingerprint_values, role_key_values
 from jobscout.models import now_iso
 
 
@@ -97,6 +97,24 @@ def get_excluded_keys_and_fingerprints(
                 fingerprints.add(fp)
 
     return keys, fingerprints
+
+
+def get_excluded_urls_and_roles(
+    settings: Settings | None = None,
+) -> tuple[set[str], set[tuple[str, str]]]:
+    """Canonical URL and company+role signals for deleted jobs."""
+    records = load_excluded_jobs(settings)
+    urls: set[str] = set()
+    roles: set[tuple[str, str]] = set()
+    for item in records:
+        url = canonical_url(item.get("link"))
+        if url:
+            urls.add(url)
+        company = (item.get("company") or "").strip()
+        title = (item.get("title") or "").strip()
+        if company and title:
+            roles.add(role_key_values(company, title))
+    return urls, roles
 
 
 def delete_job_files(settings: Settings, source: str, job_id: str) -> None:

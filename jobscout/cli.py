@@ -43,6 +43,32 @@ def main(argv: list[str] | None = None) -> int:
     ats_check.add_argument("--min-score", type=int, default=70, help="Pass threshold (default 70)")
     ats_check.add_argument("--json", action="store_true", help="Machine-readable output")
 
+    live_parser = sub.add_parser("liveness", help="Probe saved jobs for expiry")
+    live_sub = live_parser.add_subparsers(dest="liveness_command")
+    live_check = live_sub.add_parser("check", help="Check saved jobs and persist status")
+    live_check.add_argument("--limit", type=int, default=None, help="Max jobs to check")
+    live_check.add_argument(
+        "--all",
+        dest="force",
+        action="store_true",
+        help="Re-check jobs already marked expired",
+    )
+    live_check.add_argument("--json", action="store_true", help="Machine-readable output")
+
+    sweep_parser = sub.add_parser("sweep", help="Apply the deadline sweep to saved jobs")
+    sweep_parser.add_argument(
+        "--closing-days",
+        type=int,
+        default=7,
+        help="Days before the deadline to flag closing_soon (default 7)",
+    )
+    sweep_parser.add_argument("--json", action="store_true", help="Machine-readable output")
+
+    rank_parser = sub.add_parser("rank", help="Score fit for saved jobs")
+    rank_parser.add_argument("--limit", type=int, default=None, help="Max jobs to score")
+    rank_parser.add_argument("--min-score", type=int, default=None, help="Verdict threshold")
+    rank_parser.add_argument("--json", action="store_true", help="Machine-readable output")
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.host, args.port)
@@ -52,6 +78,12 @@ def main(argv: list[str] | None = None) -> int:
         return _run(args.sources, args.cached)
     if args.command == "ats":
         return _ats(args)
+    if args.command == "liveness":
+        return _liveness(args)
+    if args.command == "sweep":
+        return _sweep(args)
+    if args.command == "rank":
+        return _rank(args)
     parser.print_help()
     return 0
 
@@ -93,6 +125,197 @@ def _ats(args: argparse.Namespace) -> int:
 
 def _sources(value: str) -> list[str]:
     return ["linkedin", "indeed"] if value == "both" else [value]
+
+
+def _load_jobs(limit: int | None = None):
+    """Read saved jobs from the configured sink."""
+    from jobscout.sinks import build_sink
+
+    settings = load_settings()
+    sink = build_sink(settings)
+    sink.prepare()
+    jobs = sink.list_jobs(limit=limit if limit is not None else 100_000)
+    return settings, sink, jobs
+
+
+def _liveness(args: argparse.Namespace) -> int:
+    if getattr(args, "liveness_command", None) != "check":
+        print("usage: jobscout liveness check [--limit N] [--all]", file=sys.stderr)
+        return 2
+
+    from jobscout.liveness import (
+        check_liveness,
+        make_client,
+        store_for as liveness_store_for,
+    )
+
+    settings, sink, jobs = _load_jobs(args.limit)
+    if not jobs:
+        print("No saved jobs to check.")
+        return 0
+
+    store = liveness_store_for(settings)
+    counts: dict[str, int] = {}
+    results = []
+    with make_client(settings) as client:
+        for job in jobs:
+            result = check_liveness(
+                job,
+                settings=settings,
+                client=client,
+                store=store,
+                force=args.force,
+            )
+            counts[result.status] = counts.get(result.status, 0) + 1
+            results.append(
+                {
+                    "source": job.source.value,
+                    "job_id": job.job_id,
+                    "company": job.company,
+                    "title": job.title,
+                    **result.to_dict(),
+                }
+            )
+            sink.update_job_fields(
+                job.source.value,
+                job.job_id,
+                {
+                    "Status": job.status,
+                },
+            )
+
+    if args.json:
+        print(json.dumps({"counts": counts, "results": results}, ensure_ascii=False, indent=2))
+    else:
+        for item in results:
+            print(
+                f"[{item['status']:>9}] {item['company']} · {item['title']} "
+                f"({item['reason']})"
+            )
+        print(
+            f"\nactive={counts.get('active', 0)} "
+            f"expired={counts.get('expired', 0)} "
+            f"uncertain={counts.get('uncertain', 0)}"
+        )
+    return 0
+
+
+def _sweep(args: argparse.Namespace) -> int:
+    from jobscout.deadlines import sweep_saved_jobs
+
+    settings, sink, jobs = _load_jobs()
+    if not jobs:
+        print("No saved jobs to sweep.")
+        return 0
+
+    report = sweep_saved_jobs(jobs, closing_days=args.closing_days)
+    for job in jobs:
+        sink.update_job_fields(
+            job.source.value,
+            job.job_id,
+            {
+                "Deadline": job.deadline or "",
+                "Deadline Status": job.deadline_status,
+                "Status": job.status,
+            },
+        )
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        for item in report:
+            if item["deadline_status"] == "unknown":
+                continue
+            print(
+                f"[{item['deadline_status']:>11}] {item['company']} · {item['title']} "
+                f"→ {item['deadline'] or 'n/a'}"
+            )
+    return 0
+
+
+def _rank(args: argparse.Namespace) -> int:
+    from jobscout.scoring import (
+        compute_fit,
+        format_ranking,
+        parse_fit_payload,
+        passing,
+        rank_jobs,
+        store_for as ranking_store_for,
+    )
+
+    settings, sink, jobs = _load_jobs(args.limit)
+    if not jobs:
+        print("No saved jobs to rank.")
+        return 0
+
+    min_score = args.min_score if args.min_score is not None else settings.fit.min_score
+
+    from jobscout.cover_letter.llm import CoverLetterLLM
+    from jobscout.cover_letter.profile import load_profile
+
+    config = settings.cover_letter
+    client = CoverLetterLLM(
+        base_url=config.base_url,
+        api_key=config.api_key or "ollama",
+        model=config.model,
+        temperature=0.0,
+        max_tokens=700,
+        timeout_seconds=config.timeout_seconds,
+        num_ctx=getattr(config, "num_ctx", 4096),
+    )
+    profile_text = ""
+    candidate_location = None
+    try:
+        profile = load_profile(config.profile_path)
+        profile_text = profile.prompt_text()
+        candidate_location = getattr(profile, "city", None) or None
+    except Exception:
+        pass
+
+    store = ranking_store_for(settings)
+    pairs = []
+    for job in jobs:
+        description = job.description or job.posted_text or ""
+        raw = client.score_fit(
+            profile_text,
+            job,
+            description,
+            candidate_location=candidate_location,
+        )
+        fit = compute_fit(parse_fit_payload(raw), deadline=job.deadline)
+        pairs.append((job, fit))
+        sink.update_job_fields(
+            job.source.value,
+            job.job_id,
+            {
+                "Rank Score": str(fit.score),
+                "Rank Verdict": fit.verdict,
+            },
+        )
+
+    ordered = rank_jobs(pairs)
+    for job, fit in ordered:
+        store.upsert(job, fit)
+
+    kept = passing(ordered, min_score)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "kept": [job.job_id for job in kept],
+                    "results": [
+                        {"job": job.job_id, **fit.to_dict()} for job, fit in ordered
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        for job, fit in ordered:
+            print(format_ranking(job, fit))
+        print(f"\n{len(kept)}/{len(ordered)} jobs at or above {min_score}")
+    return 0
 
 
 def _run(source_arg: str, cached: bool) -> int:

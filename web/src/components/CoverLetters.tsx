@@ -555,6 +555,34 @@ export function CoverLetters() {
                       <span>Visit the page ↗</span>
                     </a>
                   ) : null}
+                  {job.deadline ? (
+                    <span
+                      className="cover-badge"
+                      data-state={job.deadline_status ?? "unknown"}
+                      title={`Deadline ${job.deadline}`}
+                    >
+                      ⏳ {job.deadline}
+                      {job.deadline_status === "closing_soon" ? " · closing soon" : ""}
+                    </span>
+                  ) : null}
+                  {typeof job.rank_score === "number" ? (
+                    <span
+                      className="cover-badge"
+                      data-state={job.rank_verdict === "Veto" ? "veto" : "ranked"}
+                      title={job.rank_verdict ?? "Fit score"}
+                    >
+                      ★ {job.rank_score}
+                    </span>
+                  ) : null}
+                  {job.status === "expired" ? (
+                    <span
+                      className="cover-badge"
+                      data-state="expired"
+                      title={job.expired_reason ?? "Posting is closed"}
+                    >
+                      ✕ expired
+                    </span>
+                  ) : null}
                 </div>
 
                 {visits[key] ? (

@@ -21,6 +21,8 @@ class AgentId(StrEnum):
     coordinator = "coordinator"
     linkedin = "linkedin"
     indeed = "indeed"
+    verifier = "verifier"
+    analyst = "analyst"
     registrar = "registrar"
     writer = "writer"
 
@@ -62,6 +64,22 @@ class Job(BaseModel):
     scraped_at: str = Field(default_factory=now_iso)
     applied: bool = False
 
+    # --- P1: identity, dedupe and lifecycle -----------------------------
+    canonical_url: str | None = None
+    requisition_id: str | None = None
+    fingerprint: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+    status: str = "unknown"  # liveness: active|expired|uncertain|unknown
+    expired_reason: str | None = None
+    liveness_checked_at: str | None = None
+    liveness_attempts: int = 0
+    deadline: str | None = None
+    deadline_status: str = "unknown"  # active|closing_soon|expired|unparseable|unknown
+    rank_score: int | None = None
+    rank_verdict: str | None = None
+    ranked_at: str | None = None
+
     def key(self) -> tuple[str, str]:
         return (self.source.value, self.job_id)
 
@@ -80,6 +98,13 @@ class Job(BaseModel):
             "Search Query": self.search_query,
             "Scraped At": self.scraped_at,
             "Applied": "Applied" if self.applied else "Will Apply",
+            "Canonical URL": self.canonical_url or "",
+            "Requisition ID": self.requisition_id or "",
+            "Status": self.status,
+            "Deadline": self.deadline or "",
+            "Deadline Status": self.deadline_status,
+            "Rank Score": "" if self.rank_score is None else str(self.rank_score),
+            "Rank Verdict": self.rank_verdict or "",
         }
 
 
@@ -121,6 +146,7 @@ class RunState(BaseModel):
     logs: list[dict] = Field(default_factory=list)
     agent_logs: dict[str, list[dict]] = Field(default_factory=dict)
     agent_status_history: dict[str, list[dict]] = Field(default_factory=dict)
+    source_results: dict[str, dict] = Field(default_factory=dict)
     sheet_url: str | None = None
     sink_kind: str | None = None
     error: str | None = None

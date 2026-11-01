@@ -7,8 +7,18 @@ import gspread
 from gspread.exceptions import WorksheetNotFound
 
 from jobscout.config import Settings
-from jobscout.dedupe import dedupe_jobs, fingerprint_values
-from jobscout.exclusions import add_excluded_job, get_excluded_keys_and_fingerprints
+from jobscout.dedupe import (
+    ExistingJobs,
+    canonical_url,
+    dedupe_jobs,
+    fingerprint_values,
+    role_key_values,
+)
+from jobscout.exclusions import (
+    add_excluded_job,
+    get_excluded_keys_and_fingerprints,
+    get_excluded_urls_and_roles,
+)
 from jobscout.models import Job, now_iso
 from jobscout.sinks.base import Sink, SinkError
 from jobscout.sinks.local import JOB_HEADERS, RUN_HEADERS
@@ -41,6 +51,8 @@ class GoogleSheetSink(Sink):
         self._runs = None
         self._keys: set[tuple[str, str]] = set()
         self._fingerprints: set[tuple[str, str, str]] = set()
+        self._urls: set[str] = set()
+        self._roles: set[tuple[str, str]] = set()
 
     def _client(self):
         try:
@@ -73,13 +85,15 @@ class GoogleSheetSink(Sink):
         except Exception as exc:
             raise SinkError(f"Cannot prepare Google Sheet: {exc}") from exc
 
-    def existing(self) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
+    def existing(self) -> ExistingJobs:
         if self._jobs is None:
             self.prepare()
         assert self._jobs is not None
         rows = self._jobs.get_all_values()
         self._keys = set()
         self._fingerprints = set()
+        self._urls = set()
+        self._roles = set()
         if len(rows) >= 2:
             headers = rows[0]
             index = {header: i for i, header in enumerate(headers)}
@@ -99,6 +113,13 @@ class GoogleSheetSink(Sink):
                         value("Location"),
                     )
                 )
+                url = canonical_url(value("Canonical URL") or value("Job Link"))
+                if url:
+                    self._urls.add(url)
+                company = value("Company Name")
+                title = value("Job Title")
+                if company and title:
+                    self._roles.add(role_key_values(company, title))
 
         # Also load from Deleted Jobs worksheet if present
         try:
@@ -130,7 +151,15 @@ class GoogleSheetSink(Sink):
         ex_keys, ex_fps = get_excluded_keys_and_fingerprints(self.settings)
         self._keys.update(ex_keys)
         self._fingerprints.update(ex_fps)
-        return self._keys, self._fingerprints
+        ex_urls, ex_roles = get_excluded_urls_and_roles(self.settings)
+        self._urls.update(ex_urls)
+        self._roles.update(ex_roles)
+        return ExistingJobs(
+            keys=self._keys,
+            fingerprints=self._fingerprints,
+            urls=self._urls,
+            roles=self._roles,
+        )
 
     def delete_job(self, source: str, job_id: str) -> bool:
         if self._jobs is None:
@@ -228,6 +257,8 @@ class GoogleSheetSink(Sink):
             existing_keys=self._keys,
             existing_fingerprints=self._fingerprints,
             cross_source=cross_source,
+            existing_urls=self._urls,
+            existing_roles=self._roles,
         )
         if not unique:
             return 0
@@ -241,6 +272,9 @@ class GoogleSheetSink(Sink):
             self._fingerprints.add(
                 fingerprint_values(job.company, job.title, job.location)
             )
+            if job.canonical_url:
+                self._urls.add(job.canonical_url)
+            self._roles.add(role_key_values(job.company, job.title))
 
         self._jobs.append_rows(rows, value_input_option="USER_ENTERED")
         return len(unique)
@@ -263,6 +297,8 @@ class GoogleSheetSink(Sink):
             try:
                 applied_val = value("Applied").lower()
                 applied = applied_val in ("applied", "yes", "true", "y", "1")
+                rank_raw = value("Rank Score")
+                rank_score = int(rank_raw) if rank_raw else None
                 jobs.append(
                     Job(
                         company=value("Company Name"),
@@ -278,11 +314,59 @@ class GoogleSheetSink(Sink):
                         search_query=value("Search Query"),
                         scraped_at=value("Scraped At") or now_iso(),
                         applied=applied,
+                        canonical_url=value("Canonical URL") or None,
+                        requisition_id=value("Requisition ID") or None,
+                        status=value("Status") or "unknown",
+                        deadline=value("Deadline") or None,
+                        deadline_status=value("Deadline Status") or "unknown",
+                        rank_score=rank_score,
+                        rank_verdict=value("Rank Verdict") or None,
                     )
                 )
             except Exception:
                 continue
         return list(reversed(jobs))[: max(0, limit)]
+
+    def update_job_fields(
+        self,
+        source: str,
+        job_id: str,
+        fields: dict[str, str],
+    ) -> bool:
+        """Overwrite selected cells for one job row."""
+        if self._jobs is None:
+            self.prepare()
+        assert self._jobs is not None
+        self._ensure_headers(self._jobs, JOB_HEADERS)
+        if not fields:
+            return False
+        rows = self._jobs.get_all_values()
+        if len(rows) < 2:
+            return False
+        headers = rows[0]
+        index = {header: i for i, header in enumerate(headers)}
+        source_col = index.get("Source")
+        id_col = index.get("Job ID")
+        if source_col is None or id_col is None:
+            return False
+        clean_src = source.strip().lower()
+        clean_id = job_id.strip()
+        targets = {
+            name: index[name] for name in fields if name in index
+        }
+        if not targets:
+            return False
+        changed = False
+        for row_number, row in enumerate(rows[1:], start=2):
+            def value(column: int | None) -> str:
+                return row[column].strip() if column is not None and column < len(row) else ""
+
+            if value(source_col).lower() == clean_src and value(id_col) == clean_id:
+                for name, column in targets.items():
+                    self._jobs.update_cell(row_number, column + 1, fields[name])
+                    changed = True
+                return changed
+        return False
 
     def update_job_applied(self, source: str, job_id: str, applied: bool) -> bool:
         if self._jobs is None:

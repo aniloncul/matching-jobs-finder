@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from jobscout.dedupe import ExistingJobs
 from jobscout.models import Job
 
 
@@ -18,7 +19,7 @@ class Sink(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def existing(self) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
+    def existing(self) -> ExistingJobs:
         raise NotImplementedError
 
     @abstractmethod
@@ -39,4 +40,13 @@ class Sink(ABC):
         return False
 
     def update_job_applied(self, source: str, job_id: str, applied: bool) -> bool:
+        return False
+
+    def update_job_fields(
+        self,
+        source: str,
+        job_id: str,
+        fields: dict[str, str],
+    ) -> bool:
+        """Overwrite selected stored columns for one job (P1 lifecycle fields)."""
         return False

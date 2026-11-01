@@ -29,11 +29,22 @@ def test_cached_run_completes_and_second_run_dedupes(tmp_path: Path) -> None:
     assert state.stats.new == 12
     assert state.stats.skipped == 0
     assert state.stats.errors == 0
-    assert len(state.messages) == 8
+    assert len(state.messages) == 9
+    assert set(state.source_results) == {"linkedin", "indeed"}
+    assert state.source_results["linkedin"]["status"] == "ok"
+    assert state.source_results["linkedin"]["jobs"] == 6
     assert {
-        agent.status.value for agent_id, agent in state.agents.items() if agent_id != "writer"
-    } == {"done"}
-    assert state.agents["writer"].status.value == "idle"
+        agent_id: agent.status.value for agent_id, agent in state.agents.items()
+    } == {
+        "coordinator": "done",
+        "linkedin": "done",
+        "indeed": "done",
+        "verifier": "done",
+        # Fit scoring is opt-in (JOBSCOUT_FIT_ENABLED=0) and stays idle.
+        "analyst": "waiting",
+        "registrar": "done",
+        "writer": "idle",
+    }
 
     manager.start(["linkedin", "indeed"], cached=True)
     manager.wait(30)

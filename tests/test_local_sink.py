@@ -10,7 +10,7 @@ def make_job(job_id: str = "1", source: str = "linkedin") -> Job:
     return Job(
         company="Acme",
         title="AI Engineer",
-        link=f"https://example.com/{job_id}",
+        link=f"https://example.com/{source}/{job_id}",
         source=source,
         job_id=job_id,
         location="Remote",
@@ -32,9 +32,9 @@ def test_local_sink_writes_and_dedupes(tmp_path: Path) -> None:
     assert runs_csv.exists()
     assert jobs_csv.read_text(encoding="utf-8").strip().split(",") == JOB_HEADERS
 
-    keys, fingerprints = sink.existing()
-    assert keys == set()
-    assert fingerprints == set()
+    existing = sink.existing()
+    assert existing.keys == set()
+    assert existing.fingerprints == set()
 
     assert sink.write([make_job()]) == 1
     assert sink.write([make_job()]) == 0
@@ -111,7 +111,7 @@ def test_local_sink_delete_job_and_persists_exclusion(tmp_path: Path) -> None:
     assert len(rows_after) == 1
     assert rows_after[0]["Job ID"] == "2"
 
-    keys, fps = sink.existing()
+    keys = sink.existing().keys
     assert ("linkedin", "1") in keys
 
     assert sink.write([make_job("1", "linkedin")]) == 0

@@ -335,6 +335,68 @@ def set_job_applied(
         ) from exc
 
 
+@app.post("/api/jobs/sweep")
+def sweep_deadlines() -> dict:
+    """Apply the deadline sweep to every saved job and persist the result."""
+    from jobscout.deadlines import sweep_saved_jobs
+
+    try:
+        sink = build_sink(settings)
+        jobs = sink.list_jobs(limit=100_000)
+        report = sweep_saved_jobs(jobs, closing_days=7)
+        for job in jobs:
+            sink.update_job_fields(
+                job.source.value,
+                job.job_id,
+                {
+                    "Deadline": job.deadline or "",
+                    "Deadline Status": job.deadline_status,
+                    "Status": job.status,
+                },
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Sweep failed: {exc}") from exc
+    return {"status": "ok", "jobs": len(report), "report": report}
+
+
+class LivenessRequest(BaseModel):
+    limit: int = Field(default=25, ge=1, le=500)
+    force: bool = False
+
+
+@app.post("/api/jobs/liveness")
+def check_liveness_endpoint(payload: LivenessRequest | None = None) -> dict:
+    """Probe saved jobs for expiry and persist the verdict."""
+    from jobscout.liveness import check_liveness, make_client
+
+    request = payload or LivenessRequest()
+    try:
+        sink = build_sink(settings)
+        jobs = sink.list_jobs(limit=request.limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read jobs: {exc}") from exc
+
+    results = []
+    counts: dict[str, int] = {}
+    with make_client(settings) as client:
+        for job in jobs:
+            result = check_liveness(
+                job, settings=settings, client=client, force=request.force
+            )
+            counts[result.status] = counts.get(result.status, 0) + 1
+            sink.update_job_fields(job.source.value, job.job_id, {"Status": job.status})
+            results.append(
+                {
+                    "source": job.source.value,
+                    "job_id": job.job_id,
+                    "company": job.company,
+                    "title": job.title,
+                    **result.to_dict(),
+                }
+            )
+    return {"status": "ok", "counts": counts, "results": results}
+
+
 @app.get("/api/jobs/{source}/{job_id}/description")
 def read_job_description(
     source: str,
@@ -850,6 +912,17 @@ def _job_payload(job: Job) -> dict:
             else None
         ),
         "applied": bool(getattr(job, "applied", False)),
+        "canonical_url": job.canonical_url,
+        "requisition_id": job.requisition_id,
+        "status": job.status,
+        "expired_reason": job.expired_reason,
+        "liveness_checked_at": job.liveness_checked_at,
+        "liveness_attempts": job.liveness_attempts,
+        "deadline": job.deadline,
+        "deadline_status": job.deadline_status,
+        "rank_score": job.rank_score,
+        "rank_verdict": job.rank_verdict,
+        "ranked_at": job.ranked_at,
         "urls": urls,
     }
 

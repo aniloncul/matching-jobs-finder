@@ -17,6 +17,8 @@ AGENT_DEFS = (
     ("coordinator", "Coordinator", "Orchestrator", "Standing by"),
     ("linkedin", "LinkedIn Scout", "Source agent", "Waiting for dispatch"),
     ("indeed", "Indeed Scout", "Source agent", "Waiting for dispatch"),
+    ("verifier", "Verifier", "Liveness agent", "Waiting for results"),
+    ("analyst", "Analyst", "Fit scorer", "Waiting for verification"),
     ("registrar", "Registrar", "Sheet writer", "Waiting for results"),
     ("writer", "Cover Writer", "Application agent", "Waiting for a job"),
 )
@@ -120,6 +122,7 @@ class RunManager:
                 logs=[],
                 agent_logs={},
                 agent_status_history={},
+                source_results={},
                 sheet_url=None,
                 sink_kind=None,
                 error=None,
@@ -357,4 +360,16 @@ class RunManager:
         if event_type == "sink.ready":
             state.sink_kind = event.get("kind")
             state.sheet_url = event.get("sheet_url")
+            return
+
+        if event_type == "source.result":
+            agent_id = event.get("agent")
+            if agent_id:
+                state.source_results[str(agent_id)] = {
+                    "status": event.get("status", "ok"),
+                    "message": event.get("message"),
+                    "pages_fetched": int(event.get("pages_fetched", 0) or 0),
+                    "jobs": int(event.get("jobs", 0) or 0),
+                    "ts": event.get("ts"),
+                }
             return
