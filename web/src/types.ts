@@ -146,6 +146,10 @@ export interface CoverLetter {
   reused: boolean;
   warning: string | null;
   pdf_error: string | null;
+  blocked: boolean;
+  blockers: string[];
+  ats_score: number | null;
+  ats_grade: string | null;
 }
 
 export interface CoverLetterResponse {

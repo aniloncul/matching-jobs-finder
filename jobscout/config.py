@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -84,6 +85,8 @@ class CoverLetterConfig(BaseModel):
     auto_fetch_descriptions: bool = True
     auto_fetch_limit: int = 10
     compile_pdf: bool = True
+    ats_min_score: int = 70
+    forbidden_phrases: list[str] = Field(default_factory=list)
     detail_timeout_ms: int = 45_000
     cv_import_max_pages: int = 4
     cv_import_max_upload_mb: int = 12
@@ -173,6 +176,16 @@ def load_settings(path: str | Path | None = None) -> Settings:
         cover_letter["timeout_seconds"] = float(os.getenv("COVER_LETTER_TIMEOUT", "300"))
     if os.getenv("COVER_LETTER_COMPILE_PDF"):
         cover_letter["compile_pdf"] = os.getenv("COVER_LETTER_COMPILE_PDF", "1").lower() not in {"0", "false", "no"}
+    if os.getenv("COVER_LETTER_ATS_MIN_SCORE"):
+        cover_letter["ats_min_score"] = max(
+            0, min(100, int(os.getenv("COVER_LETTER_ATS_MIN_SCORE", "70")))
+        )
+    if os.getenv("COVER_LETTER_FORBIDDEN_PHRASES"):
+        cover_letter["forbidden_phrases"] = [
+            item.strip()
+            for item in re.split(r"[,;]", os.getenv("COVER_LETTER_FORBIDDEN_PHRASES", ""))
+            if item.strip()
+        ]
     if os.getenv("CV_IMPORT_MAX_PAGES"):
         cover_letter["cv_import_max_pages"] = max(
             1, int(os.getenv("CV_IMPORT_MAX_PAGES", "4"))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from jobscout.browser import browser_context
@@ -34,6 +35,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Clear saved cookies/profile before opening browser",
     )
 
+    ats_parser = sub.add_parser("ats", help="Deterministic ATS checks for a PDF")
+    ats_sub = ats_parser.add_subparsers(dest="ats_command")
+    ats_check = ats_sub.add_parser("check", help="Score a PDF's text layer and layout")
+    ats_check.add_argument("pdf", help="Path to the PDF")
+    ats_check.add_argument("--pages", type=int, default=None, help="Expected page count")
+    ats_check.add_argument("--min-score", type=int, default=70, help="Pass threshold (default 70)")
+    ats_check.add_argument("--json", action="store_true", help="Machine-readable output")
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.host, args.port)
@@ -41,8 +50,45 @@ def main(argv: list[str] | None = None) -> int:
         return _warm(args.source, clean=args.clean)
     if args.command == "run":
         return _run(args.sources, args.cached)
+    if args.command == "ats":
+        return _ats(args)
     parser.print_help()
     return 0
+
+
+def _ats(args: argparse.Namespace) -> int:
+    from jobscout.verification import PdfReadError, analyze_pdf, check_pdf
+    from jobscout.verification.ats import format_report
+
+    if getattr(args, "ats_command", None) != "check":
+        print("usage: jobscout ats check <pdf>", file=sys.stderr)
+        return 2
+    try:
+        report = analyze_pdf(
+            args.pdf,
+            expected_pages=args.pages,
+            min_score=args.min_score,
+        )
+        pdf_check = check_pdf(args.pdf, expected_pages=args.pages)
+    except PdfReadError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(
+            json.dumps(
+                {"ats": report.to_dict(), "pdf": pdf_check.to_dict()},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(format_report(report))
+        if pdf_check.issues:
+            print("\nText-layer issues:")
+            for issue in pdf_check.issues:
+                print(f"- [{issue.severity}] {issue.message}")
+    return 0 if report.passed and pdf_check.ok else 1
 
 
 def _sources(value: str) -> list[str]:

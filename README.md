@@ -101,6 +101,18 @@ Unlike naive prompts that dump the whole profile into a large LLM:
 2. **Hybrid Matching**: Combines dense semantic cosine similarity (`bge-m3`) with sparse BM25 lexical relevance and MMR diversity filtering.
 3. **Constrained Generation**: The LLM is provided only with top-matched evidence bullets for the role's specific requirements.
 4. **Factual Verification**: The generated letter is audited against the profile for hallucinated metrics, unverified numbers, and grounding integrity.
+5. **Hard Fact Gate**: A letter that invents a metric, names an unsupported tool, or uses a forbidden phrase is marked `blocked`. The `.tex` and metadata are still written for review, but no PDF is produced.
+6. **Posting Guard**: Scraped job descriptions are stripped of hidden HTML, invisible Unicode tag characters, and instruction-shaped text before they reach the model.
+
+### ATS check
+
+Every compiled cover letter is scored on its PDF text layer (selectable text, section headings, contact details, single-column layout, images, embedded fonts, charset, hidden text). The score is advisory and stored in the letter metadata. Any PDF can be checked from the CLI:
+
+```bash
+uv run jobscout ats check data/cover_letters/linkedin-123.pdf --pages 1
+```
+
+The same check is available as `POST /api/ats/check` (multipart PDF upload) and returns both the ATS score and the text-layer issues.
 
 
 ```yaml

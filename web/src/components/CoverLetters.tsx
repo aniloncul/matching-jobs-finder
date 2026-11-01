@@ -148,7 +148,14 @@ export function CoverLetters() {
         urls: response.urls,
       };
       setJobs((previous) => [newJob, ...previous]);
-      setNotice(`Cover letter ready (${response.letter.language.toUpperCase()} · DIN 5008): ${response.letter.company} · ${response.letter.title}`);
+      if (response.letter.blocked) {
+        setNotice(
+          `Draft blocked by fact check: ${response.letter.company} · ${response.letter.title}. ${response.letter.blockers.join("; ")}`,
+        );
+      } else {
+        const suffix = response.letter.ats_score !== null ? ` · ATS ${response.letter.ats_score}/100 (${response.letter.ats_grade})` : "";
+        setNotice(`Cover letter ready (${response.letter.language.toUpperCase()} · DIN 5008): ${response.letter.company} · ${response.letter.title}${suffix}`);
+      }
       setShowCustom(false);
       setCustomCompany("");
       setCustomTitle("");
@@ -225,6 +232,11 @@ export function CoverLetters() {
         `${response.letter.company} · ${response.letter.title}`,
         response.letter.reused ? "existing letter" : `letter ready (${response.letter.language.toUpperCase()})`,
       ];
+      if (response.letter.blocked) {
+        parts.push(`PDF blocked: ${response.letter.blockers.join("; ")}`);
+      } else if (response.letter.ats_score !== null) {
+        parts.push(`ATS ${response.letter.ats_score}/100 (${response.letter.ats_grade})`);
+      }
       if (response.letter.warning) parts.push(response.letter.warning);
       if (response.letter.pdf_error) parts.push(response.letter.pdf_error);
       setNotice(parts.join(" · "));

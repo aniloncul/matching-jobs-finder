@@ -1,6 +1,7 @@
 import csv
 from pathlib import Path
 
+from jobscout.config import Settings
 from jobscout.models import Job
 from jobscout.sinks.local import JOB_HEADERS, LocalSink
 
@@ -24,7 +25,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
 def test_local_sink_writes_and_dedupes(tmp_path: Path) -> None:
     jobs_csv = tmp_path / "jobs.csv"
     runs_csv = tmp_path / "runs.csv"
-    sink = LocalSink(jobs_csv, runs_csv)
+    sink = LocalSink(jobs_csv, runs_csv, settings=Settings(root=tmp_path))
     sink.prepare()
 
     assert jobs_csv.exists()

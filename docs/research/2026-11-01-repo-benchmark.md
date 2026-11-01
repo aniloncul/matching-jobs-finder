@@ -197,6 +197,8 @@ Not: ≥90 A, ≥80 B, ≥70 C, ≥60 D, <60 F. Varsayılan eşik 70 ve `critica
 
 ### P0 — Deterministik güvenlik ve doğrulama (1–2 gün)
 
+> **Durum: tamamlandı (2026-11-01).** `jobscout/verification/` (text, pdf, ats, keywords, facts) ve `jobscout/security/posting_guard.py` eklendi; fact gate cover letter üretimine bağlandı, `jobscout ats check` CLI'ı ve `POST /api/ats/check` endpoint'i çalışıyor. Testler: `tests/test_verification.py`.
+
 Amaç: LLM çıktısını denetleyen, modelden bağımsız, test edilebilir katman.
 
 **1. `jobscout/verification/pdf.py`**

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -34,6 +36,7 @@ from jobscout.exclusions import delete_job_files
 from jobscout.models import AgentStatus, Job, Source
 from jobscout.run_manager import RunManager
 from jobscout.sinks import build_sink
+from jobscout.verification import PdfReadError, analyze_pdf, check_pdf
 
 
 settings = load_settings()
@@ -250,6 +253,39 @@ def _profile_payload(profile: Profile | None, issues: list[str]) -> dict:
         "issues": issues,
         "profile": profile.model_dump(mode="json") if profile else None,
     }
+
+
+@app.post("/api/ats/check")
+def ats_check(
+    file: UploadFile = File(...),
+    pages: int | None = None,
+    language: str = "de",
+    min_score: int = 70,
+) -> dict:
+    """Score an uploaded PDF. Read-only: the file is never persisted."""
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="PDF is larger than 20 MB")
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as handle:
+            handle.write(data)
+            tmp_path = Path(handle.name)
+        report = analyze_pdf(
+            tmp_path,
+            expected_pages=pages,
+            language=language,
+            min_score=max(0, min(100, min_score)),
+        )
+        pdf_check = check_pdf(tmp_path, expected_pages=pages)
+        return {"ats": report.to_dict(), "pdf": pdf_check.to_dict()}
+    except PdfReadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 @app.get("/api/jobs")

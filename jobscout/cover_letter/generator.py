@@ -32,6 +32,8 @@ from jobscout.cover_letter.profile import Profile, ProfileError, load_profile
 from jobscout.cover_letter.requirements import extract_requirements
 from jobscout.cover_letter.verifier import verify_letter
 from jobscout.models import Job
+from jobscout.security import guard_text
+from jobscout.verification import analyze_pdf
 
 
 Progress = Callable[[str, float | None], None]
@@ -53,6 +55,10 @@ class CoverLetterResult(BaseModel):
     reused: bool = False
     warning: str | None = None
     pdf_error: str | None = None
+    blocked: bool = False
+    blockers: list[str] = []
+    ats_score: int | None = None
+    ats_grade: str | None = None
 
 
 def _safe_key(value: str) -> str:
@@ -302,6 +308,15 @@ def generate_cover_letter(
                 except Exception as exc:
                     warning = f"Job description fetched but could not be saved: {exc}"
 
+    posting_guard = guard_text(description)
+    if posting_guard.flagged:
+        warning = (
+            f"{warning} {posting_guard.summary()}".strip()
+            if warning
+            else posting_guard.summary()
+        )
+    description = posting_guard.clean_text
+
     progress("Matching qualifications with job requirements", 0.20)
     bullets = extract_bullets(profile.model_dump(mode="python"))
     requirements = extract_requirements(description)
@@ -364,12 +379,27 @@ def generate_cover_letter(
 
     # Verification and grounding check
     full_text = " ".join([data["intro"], *data["main_paragraphs"], conclusion])
+    evidence_text = "\n".join(
+        [
+            *(bullet.text for bullet in bullets),
+            profile.summary,
+            profile.motivation,
+            " ".join(profile.skills),
+            " ".join(profile.soft_skills),
+            profile.cv_text,
+        ]
+    )
     verification = verify_letter(
         full_text,
         available_bullets=bullets,
         selected_bullets=[m.bullet for m in matched_bullets],
+        evidence_text=evidence_text,
+        forbidden_phrases=getattr(config, "forbidden_phrases", None),
     )
-    if verification.warnings and not warning:
+    blocked = verification.verdict == "block"
+    if blocked:
+        warning = "Fact check blocked PDF generation: " + "; ".join(verification.blockers)
+    elif verification.warnings and not warning:
         warning = f"Verification check: {len(verification.warnings)} potential grounding notice(s)."
 
     context = {
@@ -415,23 +445,47 @@ def generate_cover_letter(
         ],
         "verification": {
             "passed": verification.passed,
+            "verdict": verification.verdict,
             "warnings": verification.warnings,
+            "blockers": verification.blockers,
             "grounded_bullets_count": verification.grounded_bullets_count,
             "unverified_metrics": verification.unverified_metrics,
+            "unsupported_facts": verification.unsupported_facts,
+            "forbidden_phrases": verification.forbidden_phrases,
+            "scope_issues": verification.scope_issues,
         },
+        "posting_guard": posting_guard.to_dict(),
+        "blocked": blocked,
         "warning": warning,
     }
-    paths["json"].write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
 
     do_compile = config.compile_pdf if compile_pdf is None else compile_pdf
     pdf_path: Path | None = None
     pdf_error: str | None = None
-    if do_compile:
+    if blocked:
+        pdf_error = "Blocked by the fact check. Review the .tex and metadata before exporting."
+    elif do_compile:
         progress("Compiling PDF", 0.85)
         pdf_path, pdf_error = _compile_pdf(paths["tex"])
+
+    ats_score: int | None = None
+    ats_grade: str | None = None
+    if pdf_path is not None:
+        try:
+            ats_report = analyze_pdf(
+                pdf_path,
+                min_score=getattr(config, "ats_min_score", 70),
+            )
+            ats_score = ats_report.score
+            ats_grade = ats_report.grade
+            metadata["ats"] = ats_report.to_dict()
+        except Exception as exc:  # ATS check is advisory, never fatal
+            metadata["ats"] = {"error": str(exc)}
+
+    paths["json"].write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     progress("Cover letter ready", 1.0)
     return CoverLetterResult(
@@ -446,4 +500,8 @@ def generate_cover_letter(
         reused=False,
         warning=warning,
         pdf_error=pdf_error,
+        blocked=blocked,
+        blockers=verification.blockers,
+        ats_score=ats_score,
+        ats_grade=ats_grade,
     )
