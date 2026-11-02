@@ -272,6 +272,15 @@ class SourceResult(BaseModel):
 
 Bu, iki repodan alınacak en büyük yetenek. Amaç: **CV'yi LLM'e yazdırmadan, veriden üretmek.**
 
+> **Uygulandı** (`analysis/repo-benchmark`): `jobscout/cv/` paketi — `master.py` (facts +
+> `config/cv.master.yaml` overlay; örnek: `config/cv.master.example.yaml`), `payload.py`
+> (`extra="forbid"` şema; gap'ler `plain_text`'e girmez), `tailor.py` (deterministik keyword/
+> gap/sıralama/cut; bold label yalnız bullet'ta geçen terim), `llm.py` + `reviewer.py`
+> (JSON-only tailoring, reason-enum edit'ler; `grounding` asla uygulanmaz), `verify.py`
+> (structure/title-drift/fact gate/CV-letter tutarlılık), `render.py` + `templates/
+> cv_modern.tex.j2` (tectonic), `pipeline.py` + CLI `cv build` / `cv gaps`. Testler:
+> `tests/test_cv_*.py`.
+
 **11. Master CV'yi veriye çevir**
 - `config/profile.yaml`'ı genişlet: her achievement'a `id`, `metrics[]`, `skills[]`, `scope` (`led|contributed|used`), `sources[]`.
 - Alternatif: `config/cv.master.yaml` + `data/cv/master.md` (insan okunur kaynak) + `profile.yaml` (iletişim/tercihler). Tek doğruluk kaynağı kuralı: türetilmiş CV asla fact kaynağı değil.

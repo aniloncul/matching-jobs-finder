@@ -1,0 +1,27 @@
+# Optional overlay for the master CV. Copy to config/cv.master.yaml.
+#
+# The rules the loader enforces:
+#   * An annotation can only add metadata (skills, metrics, scope, sources).
+#     It can never change the text of a fact, and an unknown id is reported,
+#     not guessed at.
+#   * extra_facts add new evidence you want on the CV; they must be true.
+#   * A requirement you cannot evidence here is a gap - it is reported, never
+#     written into the CV.
+
+facts:
+  # Reference a fact by its id (printed in data/cv/<job>.payload.json) or by
+  # its exact text with "match".
+  - match: "Built an automation workflow that reduced manual work by 30%."
+    skills: ["n8n", "Python"]
+    metrics: ["30%"]
+    scope: led            # led | contributed | used
+    sources:
+      - "manager review 2024-12"
+
+extra_facts:
+  - text: "Ran the on-call rotation for two production services."
+    kind: responsibility   # achievement | responsibility | education | certification | language | skill
+    company: "Example GmbH"
+    role: "AI Engineer"
+    scope: led
+    source: "team lead confirmation"

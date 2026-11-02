@@ -114,6 +114,33 @@ uv run jobscout ats check data/cover_letters/linkedin-123.pdf --pages 1
 
 The same check is available as `POST /api/ats/check` (multipart PDF upload) and returns both the ATS score and the text-layer issues.
 
+### CV pipeline
+
+The CV is generated from data, never written by the model. `config/profile.yaml` is the master
+record: every achievement becomes an addressable fact with an id, the tools and numbers it
+evidences, and how strongly the candidate was involved. An optional `config/cv.master.yaml`
+overlay can annotate facts (`skills`, `metrics`, `scope`, `sources`) or add new ones - it can
+never rewrite the text of an existing fact.
+
+For one saved job (or any job description file) the pipeline builds a strict JSON payload,
+tailors it deterministically to the posting (keyword ordering, bold labels only for terms a
+bullet already proves, page fitting), runs the same fact gate as the cover letter - including
+title-drift and CV/letter consistency checks - and only then renders LaTeX to a PDF:
+
+```bash
+uv run jobscout cv build --source linkedin --id 123   # tailor to one saved job
+uv run jobscout cv build --jd jobs/ad.txt --no-llm    # deterministic, from a text file
+uv run jobscout cv gaps                               # requirements the master CV cannot evidence
+```
+
+Requirements the candidate cannot prove are reported as **gaps** - they never end up in the
+document, and phrasings like "fast learner" for a missing tool are refused. The model (the same
+endpoint as the cover letter) may only choose, order and label what the master CV already
+states; a fresh-context reviewer may propose typed edits, but `grounding` objections are only
+reported and `reframing` suggestions only shown. Outputs land in `data/cv/` as `.tex`, `.pdf`,
+the payload JSON and a metadata JSON with the verification verdict; a `block` verdict writes
+the source for review but no PDF. `JOBSCOUT_CV_ENABLED`, `JOBSCOUT_CV_LLM`,
+`JOBSCOUT_CV_REVIEWER` and `JOBSCOUT_CV_COMPILE_PDF` gate the steps.
 
 ```yaml
 name: "Your Name"

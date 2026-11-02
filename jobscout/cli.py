@@ -69,6 +69,26 @@ def main(argv: list[str] | None = None) -> int:
     rank_parser.add_argument("--min-score", type=int, default=None, help="Verdict threshold")
     rank_parser.add_argument("--json", action="store_true", help="Machine-readable output")
 
+    cv_parser = sub.add_parser("cv", help="Build a tailored CV from the master CV")
+    cv_sub = cv_parser.add_subparsers(dest="cv_command")
+    cv_build = cv_sub.add_parser("build", help="Render a CV (one saved job or the plain master CV)")
+    cv_build.add_argument("--source", choices=["linkedin", "indeed"], default=None)
+    cv_build.add_argument("--id", dest="job_id", default=None, help="Saved job id")
+    cv_build.add_argument("--jd", dest="jd_file", default=None, help="Job description text file")
+    cv_build.add_argument("--language", choices=["de", "en"], default=None)
+    cv_build.add_argument("--no-llm", action="store_true", help="Deterministic tailoring only")
+    cv_build.add_argument("--review", action="store_true", help="Run the fresh-context reviewer")
+    cv_build.add_argument("--no-pdf", action="store_true", help="Stop at the .tex file")
+    cv_build.add_argument("--force", action="store_true", help="Rebuild an existing CV")
+    cv_build.add_argument("--json", action="store_true", help="Machine-readable output")
+
+    cv_gaps = cv_sub.add_parser("gaps", help="Requirements the master CV cannot evidence")
+    cv_gaps.add_argument("--source", choices=["linkedin", "indeed"], default=None)
+    cv_gaps.add_argument("--id", dest="job_id", default=None)
+    cv_gaps.add_argument("--jd", dest="jd_file", default=None)
+    cv_gaps.add_argument("--limit", type=int, default=25, help="Max saved jobs to scan")
+    cv_gaps.add_argument("--json", action="store_true", help="Machine-readable output")
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.host, args.port)
@@ -84,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         return _sweep(args)
     if args.command == "rank":
         return _rank(args)
+    if args.command == "cv":
+        return _cv(args)
     parser.print_help()
     return 0
 
@@ -315,6 +337,160 @@ def _rank(args: argparse.Namespace) -> int:
         for job, fit in ordered:
             print(format_ranking(job, fit))
         print(f"\n{len(kept)}/{len(ordered)} jobs at or above {min_score}")
+    return 0
+
+
+def _cv(args: argparse.Namespace) -> int:
+    command = getattr(args, "cv_command", None)
+    if command == "build":
+        return _cv_build(args)
+    if command == "gaps":
+        return _cv_gaps(args)
+    print("usage: jobscout cv build|gaps", file=sys.stderr)
+    return 2
+
+
+def _read_jd_file(path: str | None) -> str:
+    from pathlib import Path
+
+    if not path:
+        return ""
+    return Path(path).read_text(encoding="utf-8")
+
+
+def _find_saved_job(source: str, job_id: str):
+    _settings, _sink, jobs = _load_jobs()
+    for job in jobs:
+        if job.source.value == source and job.job_id == job_id:
+            return job
+    return None
+
+
+def _cv_build(args: argparse.Namespace) -> int:
+    from jobscout.cv.pipeline import CVBuildError, build_cv
+
+    settings = load_settings()
+    if not settings.cv.enabled:
+        print(
+            "The CV pipeline is disabled. Set JOBSCOUT_CV_ENABLED=1 to enable it.",
+            file=sys.stderr,
+        )
+        return 2
+
+    job = None
+    if args.source or args.job_id:
+        if not (args.source and args.job_id):
+            print("cv build needs both --source and --id.", file=sys.stderr)
+            return 2
+        job = _find_saved_job(args.source, args.job_id)
+        if job is None:
+            print(f"No saved job {args.source}/{args.job_id}.", file=sys.stderr)
+            return 2
+
+    try:
+        description = _read_jd_file(args.jd_file)
+    except OSError as exc:
+        print(f"error: cannot read --jd file: {exc}", file=sys.stderr)
+        return 2
+
+    def progress(task: str, value: float | None = None) -> None:
+        if not args.json:
+            print(f"[{int((value or 0) * 100):3d}%] {task}")
+
+    try:
+        result = build_cv(
+            settings,
+            job=job,
+            description=description,
+            language=args.language,
+            use_llm=False if args.no_llm else None,
+            use_reviewer=True if args.review else None,
+            compile_pdf=False if args.no_pdf else None,
+            force=args.force,
+            on_progress=progress,
+        )
+    except CVBuildError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(f"\nCV: {result.key} -> {result.tex_path}")
+        if result.pdf_path:
+            print(f"PDF: {result.pdf_path} ({result.pages or '?'} pages)")
+        elif result.pdf_error:
+            print(f"PDF: {result.pdf_error}")
+        print(f"Verdict: {result.verdict.upper()} · keyword coverage {result.coverage_pct}%")
+        for blocker in result.blockers:
+            print(f"- BLOCKER: {blocker}")
+        for warning in result.warnings[:8]:
+            print(f"- warning: {warning}")
+        if result.gaps:
+            print("Gaps (never added to the CV):")
+            for gap in result.gaps[:10]:
+                print(f"- {gap['term']} [{gap['priority']}]")
+    if result.blocked:
+        return 1
+    return 0 if not result.pdf_error else 1
+
+
+def _cv_gaps(args: argparse.Namespace) -> int:
+    from jobscout.cv.master import MasterCVError, load_master
+    from jobscout.cv.tailor import find_gaps, target_keywords
+
+    settings = load_settings()
+    try:
+        master = load_master(settings.cover_letter.profile_path, settings.cv.master_path)
+    except MasterCVError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        inline_jd = _read_jd_file(args.jd_file)
+    except OSError as exc:
+        print(f"error: cannot read --jd file: {exc}", file=sys.stderr)
+        return 2
+
+    targets: list[tuple[str, str]] = []
+    if args.source and args.job_id:
+        job = _find_saved_job(args.source, args.job_id)
+        if job is None:
+            print(f"No saved job {args.source}/{args.job_id}.", file=sys.stderr)
+            return 2
+        targets.append((f"{job.company} · {job.title}", job.description or job.posted_text or ""))
+    elif inline_jd:
+        targets.append((args.jd_file or "given job description", inline_jd))
+    else:
+        _settings, _sink, jobs = _load_jobs(args.limit)
+        for job in jobs[: args.limit]:
+            targets.append(
+                (f"{job.company} · {job.title}", job.description or job.posted_text or "")
+            )
+
+    if not targets:
+        print("No saved jobs to compare against. Use --jd <file> or run a search first.")
+        return 0
+
+    report = []
+    for label, description in targets:
+        keywords = target_keywords(description, limit=settings.cv.keywords)
+        gaps = find_gaps(keywords, master)
+        report.append(
+            {
+                "target": label,
+                "keywords": len(keywords),
+                "gaps": [gap.to_dict() for gap in gaps],
+            }
+        )
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(f"Master CV: {len(master.facts)} facts, {len(master.roles)} employers.\n")
+        for item in report:
+            terms = ", ".join(gap["term"] for gap in item["gaps"][:8]) or "none"
+            print(f"{item['target']}: {len(item['gaps'])} gap(s) -> {terms}")
     return 0
 
 

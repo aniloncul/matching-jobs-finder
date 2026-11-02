@@ -4,6 +4,9 @@ import re
 from datetime import date
 from pathlib import Path
 
+import shutil
+import subprocess
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
@@ -198,3 +201,65 @@ def render_letter(template_dir: str | Path, context: dict) -> str:
     env.filters["tex"] = tex_escape
     template = env.get_template("cover_letter.tex.j2")
     return template.render(**context)
+
+
+def detect_language(text: str) -> str:
+    """Cheap DE/EN detector shared by the letter and the CV pipeline."""
+    lowered = f" {(text or '').lower()} "
+    german = sum(
+        lowered.count(f" {word} ")
+        for word in (
+            "und",
+            "der",
+            "die",
+            "das",
+            "mit",
+            "für",
+            "wir",
+            "sie",
+            "bewerbung",
+            "erfahrung",
+            "kenntnisse",
+        )
+    ) + sum(lowered.count(char) for char in ("ä", "ö", "ü", "ß"))
+    english = sum(
+        lowered.count(f" {word} ")
+        for word in (
+            "and",
+            "the",
+            "with",
+            "you",
+            "we",
+            "for",
+            "experience",
+            "skills",
+            "application",
+        )
+    )
+    return "en" if english > german else "de"
+
+
+def compile_pdf(tex_path: Path, timeout: int = 180) -> tuple[Path | None, str | None]:
+    """Compile a .tex file next to itself with tectonic.
+
+    Returns ``(pdf_path, error)``; never raises so a broken template cannot take
+    a run down with it.
+    """
+    tectonic = shutil.which("tectonic")
+    if not tectonic:
+        return None, "tectonic is not installed"
+    try:
+        process = subprocess.run(
+            [tectonic, tex_path.name],
+            cwd=str(tex_path.parent),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as pdf_error
+        return None, f"PDF compilation failed: {exc}"
+    pdf_path = tex_path.with_suffix(".pdf")
+    if process.returncode != 0 or not pdf_path.exists():
+        detail = (process.stderr or process.stdout or "").strip()[-1200:]
+        return None, f"PDF compilation failed: {detail or 'unknown tectonic error'}"
+    return pdf_path, None

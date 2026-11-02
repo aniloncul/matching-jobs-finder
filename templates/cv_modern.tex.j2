@@ -1,0 +1,65 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[{{ babel_language }}]{babel}
+\usepackage[a4paper,left=1.9cm,right=1.9cm,top=1.6cm,bottom=1.6cm]{geometry}
+\usepackage{lmodern}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+{% raw %}
+\newcommand{\cvsection}[1]{%
+  \vspace{0.7em}%
+  {\large\bfseries #1}%
+  \par\nobreak\vspace{0.15em}%
+  \rule{\linewidth}{0.4pt}%
+  \par\nobreak\vspace{0.35em}%
+}
+\newcommand{\centry}[2]{%
+  \noindent\textbf{#1}\hfill #2\par%
+}
+{% endraw %}
+
+\begin{document}
+
+% --- Header -------------------------------------------------------------
+{\LARGE\bfseries {{ name|tex }}}\par\vspace{0.15em}
+{% if headline %}{\large {{ headline|tex }}}\par\vspace{0.15em}{% endif %}
+{% if contact_line %}{{ contact_line|tex }}\par{% endif %}
+
+\cvsection{ {{- profile_heading|tex -}} }
+
+{% if summary %}{{ summary|tex }}
+
+{% endif %}
+{% if competencies %}\textbf{ {{- competency_heading|tex -}} :} {% for item in competencies %}{% if not loop.first %} \textbullet{} {% endif %}{{ item|tex }}{% endfor %}\par\vspace{0.4em}
+{% endif %}
+{% if experience %}\cvsection{ {{- experience_heading|tex -}} }
+
+{% for role in experience %}\centry{ {{- role.role|tex -}} -- {{- role.company|tex -}} }{ {{- role.period|tex -}}{% if role.location %}, {{ role.location|tex }}{% endif %} }
+{% if role.bullets %}\begin{itemize}[leftmargin=1.2em,itemsep=0.15em,topsep=0.2em]
+{% for bullet in role.bullets %}\item {% if bullet.label %}\textbf{ {{- bullet.label|tex -}} }: {% endif %}{{ bullet.text|tex }}
+{% endfor %}\end{itemize}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if education %}\cvsection{ {{- education_heading|tex -}} }
+
+{% for item in education %}\centry{ {{- item.degree|tex -}}{% if item.degree and item.institution %} -- {% endif %}{{- item.institution|tex -}} }{ {{- item.period|tex -}}{% if item.location %}, {{ item.location|tex }}{% endif %} }
+{% endfor %}
+{% endif %}
+{% if certifications %}\cvsection{ {{- certifications_heading|tex -}} }
+
+{% for item in certifications %}\noindent\textbullet{} {{ item|tex }}\par
+{% endfor %}
+{% endif %}
+{% if languages %}\cvsection{ {{- languages_heading|tex -}} }
+
+{% for item in languages %}\noindent\textbullet{} {{ item|tex }}\par
+{% endfor %}
+{% endif %}
+\end{document}

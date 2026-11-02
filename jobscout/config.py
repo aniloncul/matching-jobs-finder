@@ -77,6 +77,29 @@ class FitConfig(BaseModel):
     min_score: int = 60
 
 
+class CVConfig(BaseModel):
+    """CV pipeline settings.
+
+    ``enabled`` gates the automated path; the CLI can still build one CV on
+    demand.  LLM steps degrade to the deterministic result when no key is set.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    master_path: Path = ROOT / "config" / "cv.master.yaml"
+    template_dir: Path = ROOT / "templates"
+    output_dir: Path = ROOT / "data" / "cv"
+    keywords: int = 18
+    max_bullets_per_role: int = 6
+    max_total_bullets: int = 0  # 0 = no global cap
+    max_pages: int = 2
+    llm_tailoring: bool = True
+    reviewer_enabled: bool = False
+    compile_pdf: bool = True
+    ats_min_score: int = 70
+
+
 class CoverLetterConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -120,6 +143,7 @@ class Settings(BaseModel):
     ui: UIConfig = Field(default_factory=UIConfig)
     liveness: LivenessConfig = Field(default_factory=LivenessConfig)
     fit: FitConfig = Field(default_factory=FitConfig)
+    cv: CVConfig = Field(default_factory=CVConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
     root: Path = ROOT
     google_sheet_id: str | None = None
@@ -200,6 +224,49 @@ def load_settings(path: str | Path | None = None) -> Settings:
         fit["max_jobs"] = max(0, int(os.getenv("JOBSCOUT_FIT_MAX_JOBS", "25")))
     if os.getenv("JOBSCOUT_FIT_MIN_SCORE"):
         fit["min_score"] = max(0, min(100, int(os.getenv("JOBSCOUT_FIT_MIN_SCORE", "60"))))
+
+    raw.setdefault("cv", {})
+    cv = raw["cv"]
+
+    def _flag(name: str, default: bool) -> bool:
+        value = os.getenv(name, "").strip()
+        if not value:
+            return default
+        return value.lower() not in {"0", "false", "no", "off"}
+
+    cv["enabled"] = _flag("JOBSCOUT_CV_ENABLED", bool(cv.get("enabled", True)))
+    cv["llm_tailoring"] = _flag("JOBSCOUT_CV_LLM", bool(cv.get("llm_tailoring", True)))
+    cv["reviewer_enabled"] = _flag(
+        "JOBSCOUT_CV_REVIEWER", bool(cv.get("reviewer_enabled", False))
+    )
+    cv["compile_pdf"] = _flag(
+        "JOBSCOUT_CV_COMPILE_PDF", bool(cv.get("compile_pdf", True))
+    )
+    if os.getenv("JOBSCOUT_CV_KEYWORDS"):
+        cv["keywords"] = max(5, min(30, int(os.getenv("JOBSCOUT_CV_KEYWORDS", "18"))))
+    if os.getenv("JOBSCOUT_CV_MAX_BULLETS_PER_ROLE"):
+        cv["max_bullets_per_role"] = max(
+            1, int(os.getenv("JOBSCOUT_CV_MAX_BULLETS_PER_ROLE", "6"))
+        )
+    if os.getenv("JOBSCOUT_CV_MAX_TOTAL_BULLETS"):
+        cv["max_total_bullets"] = max(
+            0, int(os.getenv("JOBSCOUT_CV_MAX_TOTAL_BULLETS", "0"))
+        )
+    if os.getenv("JOBSCOUT_CV_MAX_PAGES"):
+        cv["max_pages"] = max(1, min(4, int(os.getenv("JOBSCOUT_CV_MAX_PAGES", "2"))))
+    if os.getenv("JOBSCOUT_CV_ATS_MIN_SCORE"):
+        cv["ats_min_score"] = max(
+            0, min(100, int(os.getenv("JOBSCOUT_CV_ATS_MIN_SCORE", "70")))
+        )
+    for key, env_key in (
+        ("master_path", "JOBSCOUT_CV_MASTER"),
+        ("output_dir", "JOBSCOUT_CV_OUTPUT_DIR"),
+        ("template_dir", "JOBSCOUT_CV_TEMPLATE_DIR"),
+    ):
+        value = os.getenv(env_key, "").strip()
+        if value:
+            path = Path(value)
+            cv[key] = path if path.is_absolute() else ROOT / path
 
     raw.setdefault("cover_letter", {})
     cover_letter = raw["cover_letter"]

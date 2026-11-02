@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
-import subprocess
 from collections.abc import Callable
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -21,7 +19,9 @@ from jobscout.cover_letter.description_store import (
 from jobscout.cover_letter.embedder import Embedder
 from jobscout.cover_letter.latex import (
     availability_sentence,
+    compile_pdf,
     confidentiality_sentence,
+    detect_language,
     format_date,
     notice_period_sentence,
     render_letter,
@@ -78,38 +78,7 @@ def letter_paths(settings: Settings, source: str, job_id: str) -> dict[str, Path
 
 
 def _detect_language(text: str) -> str:
-    lowered = f" {text.lower()} "
-    german = sum(
-        lowered.count(f" {word} ")
-        for word in (
-            "und",
-            "der",
-            "die",
-            "das",
-            "mit",
-            "für",
-            "wir",
-            "sie",
-            "bewerbung",
-            "erfahrung",
-            "kenntnisse",
-        )
-    ) + sum(lowered.count(char) for char in ("ä", "ö", "ü", "ß"))
-    english = sum(
-        lowered.count(f" {word} ")
-        for word in (
-            "and",
-            "the",
-            "with",
-            "you",
-            "we",
-            "for",
-            "experience",
-            "skills",
-            "application",
-        )
-    )
-    return "en" if english > german else "de"
+    return detect_language(text)
 
 
 def _as_text(value: Any) -> str:
@@ -196,24 +165,7 @@ def _conclusion_additions(profile: Profile, language: str) -> list[str]:
 
 
 def _compile_pdf(tex_path: Path) -> tuple[Path | None, str | None]:
-    tectonic = shutil.which("tectonic")
-    if not tectonic:
-        return None, "tectonic is not installed"
-    try:
-        process = subprocess.run(
-            [tectonic, tex_path.name],
-            cwd=str(tex_path.parent),
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-    except Exception as exc:
-        return None, f"PDF compilation failed: {exc}"
-    pdf_path = tex_path.with_suffix(".pdf")
-    if process.returncode != 0 or not pdf_path.exists():
-        detail = (process.stderr or process.stdout or "").strip()[-1200:]
-        return None, f"PDF compilation failed: {detail or 'unknown tectonic error'}"
-    return pdf_path, None
+    return compile_pdf(tex_path)
 
 
 def generate_cover_letter(
