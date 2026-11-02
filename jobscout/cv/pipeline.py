@@ -17,7 +17,11 @@ from typing import Any, Callable
 
 from jobscout.config import Settings
 from jobscout.artifacts import store_for
-from jobscout.cover_letter.description_store import load_saved_description
+from jobscout.cover_letter.description import fetch_job_description
+from jobscout.cover_letter.description_store import (
+    load_saved_description,
+    save_job_description,
+)
 from jobscout.cover_letter.generator import letter_paths
 from jobscout.cover_letter.latex import detect_language
 from jobscout.cover_letter.profile import Profile
@@ -120,6 +124,23 @@ def _description_for(settings: Settings, job: Job | None, description: str) -> t
         return cached, None
     if job.description and len(job.description.strip()) >= 20:
         return job.description.strip(), None
+    # Lazy fetch: only the job the candidate actually selected reaches the
+    # network, never a bulk sweep after a search run.  Best effort - a blocked
+    # or dead posting falls back to whatever snippet we already have.
+    if job.link:
+        try:
+            fetched = fetch_job_description(settings, job).strip()
+        except Exception:
+            fetched = ""
+        if len(fetched) >= 80:
+            try:
+                save_job_description(settings, job, fetched)
+            except Exception:
+                pass
+            store_for(settings).archive_description(
+                job.source.value, job.job_id, fetched
+            )
+            return fetched, None
     if job.posted_text and len(job.posted_text.strip()) >= 40:
         return (
             job.posted_text.strip(),

@@ -160,7 +160,7 @@ class CoverLetterConfig(BaseModel):
     template_dir: Path = ROOT / "templates"
     output_dir: Path = ROOT / "data" / "cover_letters"
     description_dir: Path = ROOT / "data" / "job_descriptions"
-    auto_fetch_descriptions: bool = True
+    auto_fetch_descriptions: bool = False
     auto_fetch_limit: int = 10
     compile_pdf: bool = True
     ats_min_score: int = 70

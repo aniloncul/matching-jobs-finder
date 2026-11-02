@@ -688,6 +688,7 @@ def test_auto_fetch_descriptions_limits_and_saves(monkeypatch, tmp_path) -> None
 
     settings = load_settings()
     settings.cover_letter.description_dir = tmp_path
+    settings.cover_letter.auto_fetch_descriptions = True
     settings.cover_letter.auto_fetch_limit = 1
 
     fetched: list[str] = []

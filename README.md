@@ -298,6 +298,8 @@ Set `JOBSCOUT_ARTIFACTS=0` to disable archiving entirely.
 
 Dedupe is by `(source, job_id)` within a source. Cross-source fingerprint dedupe is optional and disabled by default (`dedupe_cross_source: false`).
 
+A search run never sweeps job descriptions after saving. The full JD is fetched only for the job you open or generate documents for (UI job detail, cover letter, `cv build`) and is then cached under `data/job_descriptions/`. Opt back into a bounded post-run sweep with `COVER_LETTER_AUTO_DESCRIPTIONS=1` and `COVER_LETTER_AUTO_DESCRIPTION_LIMIT` (default 10).
+
 ## Verification
 
 ```bash

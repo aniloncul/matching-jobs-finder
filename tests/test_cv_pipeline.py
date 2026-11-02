@@ -30,6 +30,7 @@ def make_job(job_id: str = "42") -> Job:
 
 def make_settings(tmp_path: Path, **cv_overrides) -> Settings:
     settings = Settings(root=tmp_path)
+    settings.cover_letter.description_dir = tmp_path / "descriptions"
     settings.cv = CVConfig(
         output_dir=tmp_path / "cv",
         compile_pdf=False,
@@ -95,6 +96,33 @@ def test_build_for_a_job_records_gaps_and_coverage(tmp_path: Path, master: Maste
     forced = build_cv(
         settings, job=make_job(), description=JD, master=master, use_llm=False, force=True
     )
+    assert not forced.reused
+
+
+def test_cv_build_fetches_the_jd_only_for_the_selected_job(
+    tmp_path: Path, master: MasterCV, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jobscout.cv import pipeline
+
+    calls: list[str] = []
+
+    def fake_fetch(_settings, job):
+        calls.append(job.job_id)
+        return JD
+
+    monkeypatch.setattr(pipeline, "fetch_job_description", fake_fetch)
+    settings = make_settings(tmp_path)
+
+    # No description passed, nothing cached: the selected job's JD is fetched.
+    result = build_cv(settings, job=make_job("77"), master=master, use_llm=False)
+    assert calls == ["77"]
+    assert "Kubernetes" in [gap["term"] for gap in result.gaps]
+
+    # The JD is cached; a forced rebuild does not hit the network again.
+    forced = build_cv(
+        settings, job=make_job("77"), master=master, use_llm=False, force=True
+    )
+    assert calls == ["77"]
     assert not forced.reused
 
 
