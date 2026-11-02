@@ -16,6 +16,7 @@ config/profile.yaml*
 *.bak
 data/cover_letters/
 data/job_descriptions/
+data/cv/
 *.sqlite3
 data/*.sqlite3
 .ruff_cache/

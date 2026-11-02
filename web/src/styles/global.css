@@ -1935,6 +1935,25 @@ a {
   padding: var(--spacing-12) var(--spacing-19);
 }
 
+.cover-cv {
+  min-width: 104px;
+  padding: var(--spacing-12) var(--spacing-19);
+  background: var(--teal);
+  color: var(--on-teal);
+  border-color: var(--teal);
+}
+
+.cover-cv:hover:not(:disabled) {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--white);
+}
+
+.cover-link-cv {
+  border-style: dashed;
+  color: var(--teal);
+}
+
 .cover-delete {
   padding: var(--spacing-12) var(--spacing-16);
   background: transparent;

@@ -1,6 +1,7 @@
 import type {
   AgentLogData,
   CoverLetterResponse,
+  CvBuildResponse,
   CvImportResponse,
   JobListing,
   ProfileData,
@@ -130,6 +131,17 @@ export function generateCoverLetter(
       title: customData?.title,
       description: customData?.description,
     }),
+  });
+}
+
+export function buildCv(
+  source: string,
+  jobId: string,
+  force = false,
+): Promise<CvBuildResponse> {
+  return request<CvBuildResponse>("/api/cv", {
+    method: "POST",
+    body: JSON.stringify({ source, job_id: jobId, force }),
   });
 }
 

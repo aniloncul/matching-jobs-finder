@@ -185,6 +185,11 @@ the payload JSON and a metadata JSON with the verification verdict; a `block` ve
 the source for review but no PDF. `JOBSCOUT_CV_ENABLED`, `JOBSCOUT_CV_LLM`,
 `JOBSCOUT_CV_REVIEWER` and `JOBSCOUT_CV_COMPILE_PDF` gate the steps.
 
+In the web UI every row in the Job Offers view has a **Build CV** button that runs this exact
+pipeline for that one job (`POST /api/cv`), streams progress to the Writer agent, and then
+offers the resulting **CV TEX / CV PDF** links. The job description is fetched lazily — only
+when you build for the selected job — exactly like the cover letter.
+
 ```yaml
 name: "Your Name"
 headline: "AI Engineer"

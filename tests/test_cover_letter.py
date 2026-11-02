@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from jobscout.config import load_settings
+from jobscout.config import CVConfig, Settings, load_settings
 from jobscout.cover_letter.description import (
     parse_job_description,
     parse_linkedin_main_text,
@@ -751,3 +751,113 @@ def test_auto_fetch_descriptions_limits_and_saves(monkeypatch, tmp_path) -> None
     assert len(saved) == 1
     assert saved[0][1] == "1"
     assert (tmp_path / "linkedin-1.json").exists()
+
+
+def test_cv_endpoint_builds_serves_and_gates(monkeypatch, tmp_path) -> None:
+    from fastapi.testclient import TestClient
+    from jobscout.cv.pipeline import CVBuildError, CVBuildResult
+    from jobscout.models import Job
+    from jobscout.ui import server
+
+    monkeypatch.setattr(server.settings.cv, "output_dir", tmp_path / "cv")
+    monkeypatch.setattr(server.settings.cv, "enabled", True)
+
+    job = Job(
+        company="Nova AI",
+        title="AI Engineer",
+        link="https://example.com/1",
+        source="linkedin",
+        job_id="42",
+    )
+
+    class FakeSink:
+        def list_jobs(self, limit=100):
+            return [job]
+
+    monkeypatch.setattr(server, "build_sink", lambda *_args, **_kwargs: FakeSink())
+
+    calls: list[dict] = []
+
+    def fake_build_cv(_settings, **kwargs):
+        calls.append(kwargs)
+        from jobscout.cv.pipeline import cv_paths
+
+        paths = cv_paths(_settings, "linkedin-42")
+        paths["tex"].write_text("\\documentclass{article}", encoding="utf-8")
+        return CVBuildResult(
+            key="linkedin-42",
+            tex_path=str(paths["tex"]),
+            payload_path=str(paths["payload"]),
+            metadata_path=str(paths["json"]),
+            verdict="pass",
+            coverage_pct=80.0,
+        )
+
+    monkeypatch.setattr("jobscout.cv.pipeline.build_cv", fake_build_cv)
+    client = TestClient(server.app)
+
+    response = client.post("/api/cv", json={"source": "linkedin", "job_id": "42"})
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["cv"]["key"] == "linkedin-42"
+    assert body["urls"]["tex"] == "/api/cv/linkedin-42/tex"
+    assert body["urls"]["pdf"] is None
+    assert calls and calls[0]["job"] is job and calls[0]["force"] is False
+
+    tex = client.get("/api/cv/linkedin-42/tex")
+    assert tex.status_code == 200 and "documentclass" in tex.text
+    assert client.get("/api/cv/linkedin-42/pdf").status_code == 404
+    assert client.get("/api/cv/..%2Fevil/tex").status_code in {404, 400}
+
+    # Unknown source and unknown job are rejected before any build.
+    assert client.post("/api/cv", json={"source": "monster", "job_id": "42"}).status_code == 422
+    assert client.post("/api/cv", json={"source": "linkedin", "job_id": "99"}).status_code == 404
+
+    # A refusal from the pipeline surfaces as 400 with the reason.
+    def refuse(_settings, **_kwargs):
+        raise CVBuildError("The master CV has no facts.")
+
+    monkeypatch.setattr("jobscout.cv.pipeline.build_cv", refuse)
+    refused = client.post("/api/cv", json={"source": "linkedin", "job_id": "42"})
+    assert refused.status_code == 400
+    assert "no facts" in refused.json()["detail"]
+
+    # Disabled pipeline: 409 with the env hint.
+    monkeypatch.setattr(server.settings.cv, "enabled", False)
+    disabled = client.post("/api/cv", json={"source": "linkedin", "job_id": "42"})
+    assert disabled.status_code == 409
+    assert "JOBSCOUT_CV_ENABLED" in disabled.json()["detail"]
+
+
+def test_cv_reuse_path_reads_verdict_from_metadata(tmp_path) -> None:
+    from jobscout.cv.pipeline import build_cv, cv_paths
+
+    settings = Settings(root=tmp_path)
+    settings.cv = CVConfig(output_dir=tmp_path / "cv", compile_pdf=False)
+    paths = cv_paths(settings, "linkedin-7")
+    paths["tex"].write_text("old", encoding="utf-8")
+    import json as _json
+
+    paths["json"].write_text(
+        _json.dumps(
+            {
+                "verdict": "block",
+                "verification": {"verdict": "block", "blockers": ["fake metric"]},
+                "gaps": [{"term": "Kafka", "priority": "high"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    from jobscout.models import Job
+
+    job = Job(
+        company="Nova",
+        title="AI Engineer",
+        link="https://example.com/7",
+        source="linkedin",
+        job_id="7",
+    )
+    result = build_cv(settings, job=job)
+    assert result.reused is True
+    assert result.verdict == "block"
+    assert result.blockers == ["fake metric"]

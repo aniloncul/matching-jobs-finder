@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  buildCv,
   deleteJob,
   generateCoverLetter,
   getJobs,
@@ -29,6 +30,9 @@ export function CoverLetters() {
   const [genProgress, setGenProgress] = useState(0);
   const [genStage, setGenStage] = useState("");
   const [genTarget, setGenTarget] = useState("");
+
+  const [cvBusy, setCvBusy] = useState<string | null>(null);
+  const [cvStage, setCvStage] = useState("");
 
   const [showCustom, setShowCustom] = useState(false);
   const [customCompany, setCustomCompany] = useState("");
@@ -250,6 +254,59 @@ export function CoverLetters() {
         setBusy(null);
         setGenProgress(0);
       }, 600);
+    }
+  }
+
+  async function handleBuildCv(job: JobListing) {
+    const key = jobKey(job);
+    if (!profileReady) {
+      setNotice("Fill config/profile.yaml with your real details before building a CV.");
+      return;
+    }
+    if (job.has_cv_tex && !window.confirm("This CV already exists. Regenerate and overwrite it?")) {
+      return;
+    }
+    setCvBusy(key);
+    setNotice(null);
+    setCvStage("Preparing the master CV…");
+
+    const t1 = setTimeout(() => setCvStage("Tailoring bullets to the job description…"), 3000);
+    const t2 = setTimeout(() => setCvStage("Verifying facts and rendering LaTeX…"), 9000);
+
+    try {
+      const response = await buildCv(job.source, job.job_id, Boolean(job.has_cv_tex));
+      clearTimeout(t1);
+      clearTimeout(t2);
+      setJobs((previous) =>
+        previous.map((item) =>
+          jobKey(item) === key
+            ? {
+                ...item,
+                has_cv_tex: true,
+                has_cv_pdf: Boolean(response.cv.pdf_path),
+                cv_urls: response.urls,
+              }
+            : item,
+        ),
+      );
+      const cv = response.cv;
+      const parts = [`${job.company} · ${job.title}`];
+      if (cv.reused) parts.push("existing CV");
+      else parts.push(`CV ${cv.verdict.toUpperCase()} · coverage ${cv.coverage_pct}%`);
+      if (cv.blocked) parts.push(`PDF blocked: ${cv.blockers.join("; ")}`);
+      else if (cv.ats_score !== null) parts.push(`ATS ${cv.ats_score}/100 (${cv.ats_grade})`);
+      if (cv.pdf_error && !cv.blocked) parts.push(cv.pdf_error);
+      if (cv.gaps.length) parts.push(`${cv.gaps.length} gap(s): ${cv.gaps.slice(0, 3).map((g) => g.term).join(", ")}`);
+      setNotice(parts.join(" · "));
+    } catch (error) {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimeout(() => {
+        setCvBusy(null);
+        setCvStage("");
+      }, 400);
     }
   }
 
@@ -520,14 +577,45 @@ export function CoverLetters() {
                       PDF
                     </a>
                   ) : null}
+                  {job.cv_urls?.tex ? (
+                    <a
+                      className="cover-link cover-link-cv"
+                      href={job.cv_urls.tex}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open the tailored CV LaTeX source"
+                    >
+                      CV TEX
+                    </a>
+                  ) : null}
+                  {job.cv_urls?.pdf ? (
+                    <a
+                      className="cover-link cover-link-cv"
+                      href={job.cv_urls.pdf}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open the tailored CV PDF"
+                    >
+                      CV PDF
+                    </a>
+                  ) : null}
                   <button
                     className="button cover-generate"
                     type="button"
                     onClick={() => void handleGenerate(job)}
-                    disabled={busy !== null || !profileReady}
+                    disabled={busy !== null || cvBusy !== null || !profileReady}
                     title={!profileReady ? "Complete config/profile.yaml first" : undefined}
                   >
                     {isBusy ? `Writing… (${genProgress}%)` : job.has_tex ? "Regenerate" : "Generate"}
+                  </button>
+                  <button
+                    className="button cover-cv"
+                    type="button"
+                    onClick={() => void handleBuildCv(job)}
+                    disabled={busy !== null || cvBusy !== null || !profileReady}
+                    title={!profileReady ? "Complete config/profile.yaml first" : "Build a CV tailored to this job"}
+                  >
+                    {cvBusy === key ? cvStage || "Building CV…" : job.has_cv_tex ? "Rebuild CV" : "Build CV"}
                   </button>
                   <button
                     className="button cover-delete"

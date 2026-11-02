@@ -94,6 +94,21 @@ class JobAppliedRequest(BaseModel):
     applied: bool
 
 
+class CvBuildRequest(BaseModel):
+    source: str
+    job_id: str = Field(min_length=1, max_length=200)
+    force: bool = False
+    no_llm: bool = False
+    review: bool = False
+
+    @field_validator("source")
+    @classmethod
+    def _known_source(cls, value: str) -> str:
+        if value not in JOB_SOURCES:
+            raise ValueError(f"Unknown source: {value}")
+        return value
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True, "run": manager.state.run_id, "status": manager.state.status}
@@ -818,6 +833,110 @@ def download_cover_letter(source: str, job_id: str, kind: str) -> FileResponse:
     )
 
 
+_CV_KINDS = {"tex", "pdf", "json"}
+
+
+def _cv_urls(paths: dict, key: str) -> dict[str, str | None]:
+    return {
+        kind: f"/api/cv/{key}/{kind}" if paths[kind].exists() else None
+        for kind in sorted(_CV_KINDS)
+    }
+
+
+@app.post("/api/cv")
+def build_cv_endpoint(payload: CvBuildRequest) -> dict:
+    """Build the tailored CV for one selected job (same path as `jobscout cv build`)."""
+    from jobscout.cv.pipeline import CVBuildError, build_cv, cv_paths
+
+    if not settings.cv.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="The CV pipeline is disabled. Set JOBSCOUT_CV_ENABLED=1 to enable it.",
+        )
+    try:
+        sink = build_sink(settings)
+        job = _find_job(sink.list_jobs(limit=500), payload.source, payload.job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read jobs: {exc}") from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    manager.writer_status(
+        AgentStatus.working,
+        f"Building CV · {job.company}",
+        0.02,
+    )
+    manager.writer_message(f"Building a tailored CV for {job.company}")
+    manager.writer_log(
+        f"Received CV build request for {job.company} · {job.title}"
+        + (" · reviewer" if payload.review else "")
+        + (" · deterministic" if payload.no_llm else "")
+    )
+
+    def progress(task: str, value: float | None = None) -> None:
+        manager.writer_status(AgentStatus.working, task, value)
+        manager.writer_log(task if value is None else f"{task} ({int(value * 100)}%)")
+
+    try:
+        result = build_cv(
+            settings,
+            job=job,
+            use_llm=False if payload.no_llm else None,
+            use_reviewer=True if payload.review else None,
+            force=payload.force,
+            on_progress=progress,
+        )
+    except CVBuildError as exc:
+        manager.writer_status(AgentStatus.error, str(exc))
+        manager.writer_message(str(exc), kind="error")
+        manager.writer_log(f"CV build refused: {exc}", level="error")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        manager.writer_status(AgentStatus.error, str(exc))
+        manager.writer_message(str(exc), kind="error")
+        manager.writer_log(f"CV build failed: {exc}", level="error")
+        raise HTTPException(status_code=502, detail=f"CV build failed: {exc}") from exc
+
+    manager.writer_status(
+        AgentStatus.done,
+        f"CV ready · {job.company} · {result.verdict.upper()}",
+        1.0,
+    )
+    manager.writer_message(
+        f"CV ready · {job.company} · {job.title} · {result.verdict}",
+        kind="result",
+    )
+    manager.writer_log(
+        f"CV {result.key}: verdict {result.verdict} · coverage {result.coverage_pct}%"
+        + (f" · PDF {result.pages} pages" if result.pdf_path else "")
+    )
+    return {"cv": result.to_dict(), "urls": _cv_urls(cv_paths(settings, result.key), result.key)}
+
+
+@app.get("/api/cv/{key}/{kind}")
+def download_cv(key: str, kind: str) -> FileResponse:
+    import re
+
+    from jobscout.cv.pipeline import cv_paths
+
+    if kind not in _CV_KINDS or not re.fullmatch(r"[A-Za-z0-9._-]+", key):
+        raise HTTPException(status_code=404, detail="CV not found")
+    path = cv_paths(settings, key)[kind]
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="CV not found")
+    media_type = {
+        "pdf": "application/pdf",
+        "tex": "application/x-tex",
+        "json": "application/json",
+    }[kind]
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=f"cv-{key}.{kind}",
+        content_disposition_type="inline",
+    )
+
+
 @app.get("/api/events")
 async def events(request: Request):
     queue = bus.subscribe()
@@ -909,6 +1028,9 @@ def _find_job(jobs: list[Job], source: str, job_id: str) -> Job | None:
 def _job_payload(job: Job) -> dict:
     paths = letter_paths(settings, job.source.value, job.job_id)
     urls = _letter_urls(job.source.value, job.job_id)
+    from jobscout.cv.pipeline import cv_key, cv_paths
+
+    cv_paths_ = cv_paths(settings, cv_key(job))
     has_description = bool((job.description or "").strip()) or has_saved_description(
         settings,
         job.source.value,
@@ -926,6 +1048,9 @@ def _job_payload(job: Job) -> dict:
         "scraped_at": job.scraped_at,
         "has_tex": paths["tex"].exists(),
         "has_pdf": paths["pdf"].exists(),
+        "has_cv_tex": cv_paths_["tex"].exists(),
+        "has_cv_pdf": cv_paths_["pdf"].exists(),
+        "cv_urls": _cv_urls(cv_paths_, cv_key(job)),
         "has_description": has_description,
         "description_url": (
             f"/api/jobs/{job.source.value}/{job.job_id}/description"

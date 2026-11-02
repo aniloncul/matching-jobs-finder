@@ -150,6 +150,9 @@ export interface JobListing {
   scraped_at: string;
   has_tex: boolean;
   has_pdf: boolean;
+  has_cv_tex?: boolean;
+  has_cv_pdf?: boolean;
+  cv_urls?: { tex: string | null; pdf: string | null; json: string | null };
   has_description: boolean;
   description_url: string | null;
   applied?: boolean;
@@ -203,6 +206,29 @@ export interface CoverLetterResponse {
     tex: string | null;
     pdf: string | null;
   };
+}
+
+export interface CvBuild {
+  key: string;
+  verdict: string;
+  blocked: boolean;
+  blockers: string[];
+  warnings: string[];
+  gaps: { term: string; priority?: string }[];
+  coverage_pct: number;
+  tex_path: string | null;
+  pdf_path: string | null;
+  pdf_error: string | null;
+  pages: number | null;
+  ats_score: number | null;
+  ats_grade: string | null;
+  reused: boolean;
+  llm_used: boolean;
+}
+
+export interface CvBuildResponse {
+  cv: CvBuild;
+  urls: { tex: string | null; pdf: string | null; json: string | null };
 }
 
 

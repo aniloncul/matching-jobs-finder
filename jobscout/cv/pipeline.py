@@ -194,12 +194,26 @@ def build_cv(
                 metadata = json.loads(paths["json"].read_text(encoding="utf-8"))
             except Exception:  # noqa: BLE001
                 metadata = {}
+        verification = metadata.get("verification") or {}
         return CVBuildResult(
             key=key,
             tex_path=str(paths["tex"]),
             payload_path=str(paths["payload"]),
             metadata_path=str(paths["json"]),
-            verdict=str(metadata.get("verdict", "pass")),
+            verdict=str(
+                metadata.get("verdict")
+                or verification.get("verdict")
+                or "pass"
+            ),
+            blockers=[str(item) for item in verification.get("blockers", [])],
+            warnings=[str(item) for item in verification.get("warnings", [])],
+            gaps=[item for item in metadata.get("gaps", []) if isinstance(item, dict)],
+            coverage_pct=float(
+                ((metadata.get("tailoring") or {}).get("coverage") or {}).get(
+                    "coverage_pct", 0.0
+                )
+                or 0.0
+            ),
             pdf_path=str(paths["pdf"]) if paths["pdf"].exists() else None,
             reused=True,
         )
