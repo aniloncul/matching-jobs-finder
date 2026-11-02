@@ -861,3 +861,159 @@ def test_cv_reuse_path_reads_verdict_from_metadata(tmp_path) -> None:
     assert result.reused is True
     assert result.verdict == "block"
     assert result.blockers == ["fake metric"]
+
+
+def _make_batch_env(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from jobscout.models import Job
+    from jobscout.ui import server
+
+    monkeypatch.setattr(server.settings.cv, "output_dir", tmp_path / "cv")
+    monkeypatch.setattr(server.settings.cv, "enabled", True)
+
+    def make(job_id: str, score: int | None = None, applied: bool = False) -> Job:
+        return Job(
+            company=f"C-{job_id}",
+            title="AI Engineer",
+            link=f"https://example.com/{job_id}",
+            source="linkedin",
+            job_id=job_id,
+            rank_score=score,
+            applied=applied,
+        )
+
+    jobs: list[Job] = []
+
+    class FakeSink:
+        def list_jobs(self, limit=100):
+            return list(jobs)
+
+    monkeypatch.setattr(server, "build_sink", lambda *_a, **_k: FakeSink())
+    return TestClient(server.app), server, make, jobs
+
+
+def test_cv_batch_orders_skips_existing_and_reports(monkeypatch, tmp_path) -> None:
+    from jobscout.cv.pipeline import CVBuildResult, cv_paths
+    import threading
+
+    client, server, make, jobs = _make_batch_env(monkeypatch, tmp_path)
+    jobs.extend([
+        make("a", 90),
+        make("b", 80, applied=True),      # applied -> filtered
+        make("c", 95),                    # gets an existing CV -> skipped
+        make("d", None),                  # unranked -> last
+    ])
+    existing = cv_paths(server.settings, "linkedin-c")
+    existing["tex"].write_text("done", encoding="utf-8")
+
+    built: list[str] = []
+    lock = threading.Lock()
+
+    def fake_build_cv(settings, *, job, **_kwargs):
+        paths = cv_paths(settings, f"linkedin-{job.job_id}")
+        with lock:
+            built.append(job.job_id)
+        paths["tex"].write_text("cv", encoding="utf-8")
+        return CVBuildResult(
+            key=paths["tex"].stem,
+            tex_path=str(paths["tex"]),
+            payload_path=str(paths["payload"]),
+            metadata_path=str(paths["json"]),
+            verdict="pass",
+            coverage_pct=66.0,
+            pdf_path=str(paths["pdf"]),
+        )
+
+    monkeypatch.setattr("jobscout.cv.pipeline.build_cv", fake_build_cv)
+
+    started = client.post("/api/cv/batch", json={"limit": 3, "will_apply_only": True})
+    assert started.status_code == 200
+    queued = [item["job_id"] for item in started.json()["queued"]]
+    assert queued == ["a", "d"], queued  # best fit first, applied + existing CV out
+
+    server.cv_batch.wait(10)
+    state = client.get("/api/cv/batch").json()
+    assert state["running"] is False
+    assert state["done"] == 2 and state["total"] == 2
+    assert [r["status"] for r in state["results"]] == ["built", "built"]
+    assert [r["job_id"] for r in state["results"]] == ["a", "d"]
+    assert state["results"][0]["coverage_pct"] == 66.0
+
+    # min_score + force: only ranked jobs, existing CV rebuilt.
+    forced = client.post(
+        "/api/cv/batch", json={"limit": 5, "min_score": 85, "force": True}
+    )
+    assert [item["job_id"] for item in forced.json()["queued"]] == ["c", "a"]
+    server.cv_batch.wait(10)
+    assert built[-2:] == ["c", "a"]
+
+
+def test_cv_batch_conflict_cancel_and_error_isolation(monkeypatch, tmp_path) -> None:
+    import threading
+
+    from jobscout.cv.pipeline import CVBuildError, CVBuildResult, cv_paths
+
+    client, server, make, jobs = _make_batch_env(monkeypatch, tmp_path)
+    jobs.extend([make("slow", 90), make("next", 80), make("boom", 70)])
+
+    gate = threading.Event()
+    entered = threading.Event()
+    attempts: list[str] = []
+
+    def slow_build(settings, *, job, **_kwargs):
+        attempts.append(job.job_id)
+        if job.job_id == "slow":
+            entered.set()
+            assert gate.wait(10)
+        if job.job_id == "boom":
+            raise CVBuildError("no facts")
+        paths = cv_paths(settings, f"linkedin-{job.job_id}")
+        paths["tex"].write_text("cv", encoding="utf-8")
+        return CVBuildResult(
+            key=paths["tex"].stem,
+            tex_path=str(paths["tex"]),
+            payload_path=str(paths["payload"]),
+            metadata_path=str(paths["json"]),
+        )
+
+    monkeypatch.setattr("jobscout.cv.pipeline.build_cv", slow_build)
+
+    started = client.post("/api/cv/batch", json={"limit": 5})
+    assert started.status_code == 200
+    assert entered.wait(5)
+
+    # While the batch runs, a second batch is refused.
+    assert client.post("/api/cv/batch", json={"limit": 1}).status_code == 409
+
+    # Cancel between items: "slow" finishes, the rest are skipped.
+    assert client.post("/api/cv/batch/cancel").status_code == 200
+    gate.set()
+    server.cv_batch.wait(10)
+    state = client.get("/api/cv/batch").json()
+    assert state["running"] is False and state["cancelled"] is True
+    assert [r["job_id"] for r in state["results"]] == ["slow"]
+    assert attempts == ["slow"]
+
+    # An error on one job is recorded, the batch continues.
+    monkeypatch.setattr(
+        "jobscout.cv.pipeline.build_cv",
+        lambda settings, *, job, **_k: (_ for _ in ()).throw(
+            CVBuildError(f"no facts for {job.job_id}")
+        )
+        if job.job_id == "boom"
+        else CVBuildResult(
+            key=f"linkedin-{job.job_id}",
+            tex_path=str(cv_paths(settings, f"linkedin-{job.job_id}")["tex"]),
+            payload_path="",
+            metadata_path="",
+        ),
+    )
+    assert client.post("/api/cv/batch", json={"limit": 5, "force": True}).status_code == 200
+    server.cv_batch.wait(10)
+    state = client.get("/api/cv/batch").json()
+    statuses = {r["job_id"]: r["status"] for r in state["results"]}
+    assert statuses == {"slow": "built", "next": "built", "boom": "error"}
+    assert "no facts" in next(r for r in state["results"] if r["job_id"] == "boom")["error"]
+
+    # Idle cancel is refused.
+    assert client.post("/api/cv/batch/cancel").status_code == 409

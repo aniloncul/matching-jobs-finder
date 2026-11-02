@@ -1,6 +1,8 @@
 import type {
   AgentLogData,
   CoverLetterResponse,
+  CvBatchSnapshot,
+  CvBatchStartResponse,
   CvBuildResponse,
   CvImportResponse,
   JobListing,
@@ -143,6 +145,31 @@ export function buildCv(
     method: "POST",
     body: JSON.stringify({ source, job_id: jobId, force }),
   });
+}
+
+export function startCvBatch(options?: {
+  limit?: number;
+  willApplyOnly?: boolean;
+  minScore?: number | null;
+  force?: boolean;
+}): Promise<CvBatchStartResponse> {
+  return request<CvBatchStartResponse>("/api/cv/batch", {
+    method: "POST",
+    body: JSON.stringify({
+      limit: options?.limit ?? 5,
+      will_apply_only: options?.willApplyOnly ?? true,
+      min_score: options?.minScore ?? null,
+      force: options?.force ?? false,
+    }),
+  });
+}
+
+export function getCvBatch(): Promise<CvBatchSnapshot> {
+  return request<CvBatchSnapshot>("/api/cv/batch");
+}
+
+export function cancelCvBatch(): Promise<{ status: string }> {
+  return request<{ status: string }>("/api/cv/batch/cancel", { method: "POST" });
 }
 
 

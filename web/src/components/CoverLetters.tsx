@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   buildCv,
+  cancelCvBatch,
   deleteJob,
   generateCoverLetter,
+  getCvBatch,
   getJobs,
   getProfileStatus,
+  startCvBatch,
   updateJobApplied,
 } from "../api";
 import { formatVisitTime, useJobVisits } from "../hooks/useJobVisits";
-import type { JobListing, ProfileStatus } from "../types";
+import type { CvBatchSnapshot, JobListing, ProfileStatus } from "../types";
 import { SourceIcon } from "./SourceIcon";
 
 function jobKey(job: JobListing): string {
@@ -33,6 +36,9 @@ export function CoverLetters() {
 
   const [cvBusy, setCvBusy] = useState<string | null>(null);
   const [cvStage, setCvStage] = useState("");
+
+  const [batch, setBatch] = useState<CvBatchSnapshot | null>(null);
+  const [batchStarting, setBatchStarting] = useState(false);
 
   const [showCustom, setShowCustom] = useState(false);
   const [customCompany, setCustomCompany] = useState("");
@@ -65,6 +71,32 @@ export function CoverLetters() {
     };
     window.addEventListener("jobscout:profile-updated", refresh);
     return () => window.removeEventListener("jobscout:profile-updated", refresh);
+  }, []);
+
+  // Track the CV batch on a steady light poll: it survives a page refresh
+  // (state lives on the server) and never misses a batch started after mount.
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      try {
+        const snap = await getCvBatch();
+        if (cancelled) return;
+        setBatch((prev) => {
+          const wasRunning = prev?.running ?? false;
+          if (wasRunning && !snap.running) void loadJobs();
+          return snap;
+        });
+      } catch {
+        // transient poll error; the next tick retries
+      }
+    }
+    void tick();
+    const id = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const willApplyCount = useMemo(
@@ -310,6 +342,51 @@ export function CoverLetters() {
     }
   }
 
+  async function handleStartBatch() {
+    if (!profileReady) {
+      setNotice("Fill config/profile.yaml with your real details before building CVs.");
+      return;
+    }
+    setBatchStarting(true);
+    setNotice(null);
+    try {
+      const response = await startCvBatch({ limit: 5 });
+      if (response.status === "empty") {
+        setNotice("No jobs left to tailor — every top-fit job already has a CV.");
+      } else {
+        setBatch((prev) => ({
+          ...(prev ?? {
+            running: true, cancelled: false, total: 0, done: 0,
+            current: null, results: [], error: null,
+            started_at: null, finished_at: null,
+          }),
+          running: true,
+          total: response.queued.length,
+          done: 0,
+          results: [],
+          cancelled: false,
+        }));
+        setNotice(
+          `CV batch queued for ${response.queued.length} job(s): ` +
+          response.queued.map((q) => q.company).join(", "),
+        );
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBatchStarting(false);
+    }
+  }
+
+  async function handleCancelBatch() {
+    try {
+      await cancelCvBatch();
+      setNotice("Cancelling the CV batch after the current job…");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function handleDelete(job: JobListing) {
     const key = jobKey(job);
     const confirmMsg = `Delete "${job.title}" at "${job.company}"?\n\nThis will remove the row from Google Sheets and permanently exclude it from future searches.`;
@@ -392,6 +469,17 @@ export function CoverLetters() {
             placeholder="Filter company, title, location"
             aria-label="Filter jobs"
           />
+          <button
+            className="button cover-batch"
+            type="button"
+            onClick={() => void handleStartBatch()}
+            disabled={loading || busy !== null || batchStarting || batch?.running === true || !profileReady}
+            title={!profileReady
+              ? "Complete config/profile.yaml first"
+              : "Build CVs for the top-fit jobs that do not have one yet"}
+          >
+            {batch?.running ? `Batch CVs (${batch.done}/${batch.total})` : "Batch CVs"}
+          </button>
           <button
             className="button"
             type="button"
@@ -516,6 +604,41 @@ export function CoverLetters() {
         </div>
       ) : null}
 
+      {batch && (batch.running || batch.results.length > 0) ? (
+        <div className="profile-import-progress-card" role="status" aria-live="polite">
+          <div className="profile-import-progress-header">
+            <span className="profile-import-progress-file">
+              🗂 CV BATCH: {batch.done}/{batch.total}
+              {batch.cancelled ? " · cancelled" : ""}
+            </span>
+            <span className="profile-import-progress-pct">
+              {batch.total > 0 ? Math.round((batch.done / batch.total) * 100) : 0}%
+            </span>
+          </div>
+          <div className="profile-import-bar-track">
+            <div
+              className="profile-import-bar-fill"
+              style={{ width: `${batch.total > 0 ? (batch.done / batch.total) * 100 : 0}%` }}
+            />
+          </div>
+          <div className="profile-import-status-line">
+            <span className="profile-import-pulse-dot" />
+            <span className="profile-import-stage-text">
+              {batch.running
+                ? batch.current ?? "Starting…"
+                : batch.results
+                    .map((r) => `${r.company}: ${r.status}`)
+                    .join(" · ") || "Idle"}
+            </span>
+            {batch.running ? (
+              <button className="button cover-cancel-batch" type="button" onClick={() => void handleCancelBatch()}>
+                Cancel
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {notice ? (
         <p className="cover-notice" role="status">
           {notice}
@@ -603,7 +726,7 @@ export function CoverLetters() {
                     className="button cover-generate"
                     type="button"
                     onClick={() => void handleGenerate(job)}
-                    disabled={busy !== null || cvBusy !== null || !profileReady}
+                    disabled={busy !== null || cvBusy !== null || batch?.running === true || !profileReady}
                     title={!profileReady ? "Complete config/profile.yaml first" : undefined}
                   >
                     {isBusy ? `Writing… (${genProgress}%)` : job.has_tex ? "Regenerate" : "Generate"}
@@ -612,7 +735,7 @@ export function CoverLetters() {
                     className="button cover-cv"
                     type="button"
                     onClick={() => void handleBuildCv(job)}
-                    disabled={busy !== null || cvBusy !== null || !profileReady}
+                    disabled={busy !== null || cvBusy !== null || batch?.running === true || !profileReady}
                     title={!profileReady ? "Complete config/profile.yaml first" : "Build a CV tailored to this job"}
                   >
                     {cvBusy === key ? cvStage || "Building CV…" : job.has_cv_tex ? "Rebuild CV" : "Build CV"}

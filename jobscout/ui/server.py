@@ -36,12 +36,14 @@ from jobscout.models import AgentStatus, Job, Source
 from jobscout.run_manager import RunManager
 from jobscout.sinks import build_sink
 from jobscout.sources import KEYLESS_SOURCE_NAMES
+from jobscout.ui.batch import CvBatchRunner
 from jobscout.verification import PdfReadError, analyze_pdf, check_pdf
 
 
 settings = load_settings()
 bus = EventBus()
 manager = RunManager(settings, bus)
+cv_batch = CvBatchRunner()
 WEB_DIST = settings.root / "web" / "dist"
 
 
@@ -107,6 +109,13 @@ class CvBuildRequest(BaseModel):
         if value not in JOB_SOURCES:
             raise ValueError(f"Unknown source: {value}")
         return value
+
+
+class CvBatchRequest(BaseModel):
+    limit: int = Field(default=5, ge=1, le=25)
+    will_apply_only: bool = True
+    min_score: int | None = Field(default=None, ge=0, le=100)
+    force: bool = False
 
 
 @app.get("/api/health")
@@ -935,6 +944,85 @@ def download_cv(key: str, kind: str) -> FileResponse:
         filename=f"cv-{key}.{kind}",
         content_disposition_type="inline",
     )
+
+
+def _cv_batch_candidates(request: CvBatchRequest) -> list[Job]:
+    """Pick the jobs a batch should build, best fit first, existing CVs skipped."""
+    from jobscout.cv.pipeline import cv_key, cv_paths
+
+    sink = build_sink(settings)
+    jobs = sink.list_jobs(limit=500)
+    if request.will_apply_only:
+        jobs = [job for job in jobs if not getattr(job, "applied", False)]
+    if request.min_score is not None:
+        jobs = [
+            job for job in jobs
+            if (job.rank_score if job.rank_score is not None else -1) >= request.min_score
+        ]
+    # Fit score decides the order; unranked jobs keep their newest-first place.
+    jobs = sorted(
+        jobs,
+        key=lambda job: -(job.rank_score if job.rank_score is not None else -1),
+    )
+    candidates: list[Job] = []
+    for job in jobs:
+        if not request.force and cv_paths(settings, cv_key(job))["tex"].exists():
+            continue
+        candidates.append(job)
+        if len(candidates) >= request.limit:
+            break
+    return candidates
+
+
+@app.post("/api/cv/batch")
+def start_cv_batch(payload: CvBatchRequest | None = None) -> dict:
+    """Queue tailored CVs for the top-fit saved jobs (background thread)."""
+    if not settings.cv.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="The CV pipeline is disabled. Set JOBSCOUT_CV_ENABLED=1 to enable it.",
+        )
+    request = payload or CvBatchRequest()
+    try:
+        candidates = _cv_batch_candidates(request)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read jobs: {exc}") from exc
+    if not candidates:
+        return {"status": "empty", "queued": []}
+    try:
+        cv_batch.start(settings, manager, candidates)
+    except RunConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    manager.writer_message(
+        f"CV batch started for {len(candidates)} job(s)", kind="status"
+    )
+    return {
+        "status": "started",
+        "queued": [
+            {
+                "source": job.source.value,
+                "job_id": job.job_id,
+                "company": job.company,
+                "title": job.title,
+                "rank_score": job.rank_score,
+            }
+            for job in candidates
+        ],
+    }
+
+
+@app.get("/api/cv/batch")
+def cv_batch_status() -> dict:
+    return cv_batch.snapshot()
+
+
+@app.post("/api/cv/batch/cancel")
+def cancel_cv_batch() -> dict:
+    if not cv_batch.running:
+        raise HTTPException(status_code=409, detail="There is no CV batch running")
+    cv_batch.cancel()
+    manager.writer_log("CV batch cancellation requested", level="warn")
+    return {"status": "cancelling"}
 
 
 @app.get("/api/events")

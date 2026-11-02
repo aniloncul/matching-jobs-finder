@@ -231,6 +231,42 @@ export interface CvBuildResponse {
   urls: { tex: string | null; pdf: string | null; json: string | null };
 }
 
+export interface CvBatchItem {
+  source: string;
+  job_id: string;
+  company: string;
+  title: string;
+  key: string | null;
+  status: "built" | "reused" | "blocked" | "error";
+  verdict: string | null;
+  coverage_pct: number | null;
+  has_pdf: boolean;
+  error: string | null;
+}
+
+export interface CvBatchSnapshot {
+  running: boolean;
+  cancelled: boolean;
+  total: number;
+  done: number;
+  current: string | null;
+  results: CvBatchItem[];
+  error: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export interface CvBatchStartResponse {
+  status: "started" | "empty";
+  queued: {
+    source: string;
+    job_id: string;
+    company: string;
+    title: string;
+    rank_score: number | null;
+  }[];
+}
+
 
 export interface ExperienceData {
   company: string;
