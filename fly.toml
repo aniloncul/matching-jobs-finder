@@ -1,0 +1,50 @@
+# JobScout on Fly.io — one persistent instance per user.
+#
+# Quickstart (README "Deploy" section):
+#   fly launch --no-deploy
+#   fly volumes create jobscout_data --size 1
+#   fly secrets set JOBSCOUT_PASSWORD="pick a password"
+#   fly deploy
+#
+# The whole app state (jobs, CVs, cover letters, caches, the Setup view's
+# API key + service account, browser profiles) lives on the mounted volume
+# and survives restarts and redeploys.
+
+app = "jobscout"  # change to a globally unique name
+primary_region = "fra"
+
+[build]
+
+[env]
+  JOBSCOUT_HOST = "0.0.0.0"
+  JOBSCOUT_PORT = "8000"
+  JOBSCOUT_USER_SETTINGS = "/app/data/settings.local.json"
+  JOBSCOUT_GOOGLE_SA_FILE = "/app/data/google-service-account.json"
+  COVER_LETTER_PROFILE = "/app/data/profile.yaml"
+  JOBSCOUT_CV_MASTER = "/app/data/cv.master.yaml"
+  BROWSER_PROFILE_DIR = "/app/data/browser-profiles"
+
+[mounts]
+  source = "jobscout_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # A run is a long-lived thread with an open SSE stream: never let the
+  # machine idle away mid-scan.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2048mb" # scraping + chromium + PDF builds want headroom

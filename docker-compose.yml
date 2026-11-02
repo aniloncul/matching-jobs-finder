@@ -50,6 +50,10 @@ services:
       - COVER_LETTER_VISION_MODEL=qwen2.5:7b
       - COVER_LETTER_TIMEOUT=180
       - COVER_LETTER_COMPILE_PDF=1
+      # keep Setup-view secrets and browser profiles inside the mounted ./data
+      - JOBSCOUT_USER_SETTINGS=/app/data/settings.local.json
+      - JOBSCOUT_GOOGLE_SA_FILE=/app/data/google-service-account.json
+      - BROWSER_PROFILE_DIR=/app/data/browser-profiles
     volumes:
       - ./data:/app/data
       - ./config:/app/config

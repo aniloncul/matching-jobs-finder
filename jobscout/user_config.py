@@ -20,8 +20,15 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-USER_SETTINGS_PATH = ROOT / "config" / "settings.local.json"
-SERVICE_ACCOUNT_PATH = ROOT / "config" / "google-service-account.json"
+# Containers mount a volume for persistent state; point these env vars at it
+# (see fly.toml / Dockerfile). On a plain local run they stay in config/.
+USER_SETTINGS_PATH = Path(
+    os.getenv("JOBSCOUT_USER_SETTINGS") or ROOT / "config" / "settings.local.json"
+)
+SERVICE_ACCOUNT_PATH = Path(
+    os.getenv("JOBSCOUT_GOOGLE_SA_FILE")
+    or ROOT / "config" / "google-service-account.json"
+)
 
 _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([A-Za-z0-9_-]+)")
 

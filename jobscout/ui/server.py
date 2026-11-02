@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import os
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from secrets import compare_digest
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -54,6 +63,46 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="JobScout", version="0.1.0", lifespan=lifespan)
+
+
+# A deployed instance holds this user's API keys and sheet, so an internet-
+# facing one must not be open. Setting JOBSCOUT_PASSWORD turns on HTTP basic
+# auth for every route; the health check stays open so the platform can poll
+# it. Local runs (no password set) are untouched.
+AUTH_EXEMPT_PATHS = {"/api/health"}
+
+
+def _expected_credentials() -> tuple[str, str] | None:
+    password = (os.getenv("JOBSCOUT_PASSWORD") or "").strip()
+    if not password:
+        return None
+    username = (os.getenv("JOBSCOUT_USERNAME") or "").strip() or "jobscout"
+    return username, password
+
+
+def _credentials_ok(header: str, expected: tuple[str, str]) -> bool:
+    if not header.lower().startswith("basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:], validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    user, _, password = decoded.partition(":")
+    return compare_digest(user, expected[0]) and compare_digest(password, expected[1])
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    expected = _expected_credentials()
+    if expected is None or request.url.path in AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if _credentials_ok(request.headers.get("authorization", ""), expected):
+        return await call_next(request)
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Authentication required."},
+        headers={"WWW-Authenticate": 'Basic realm="JobScout"'},
+    )
 
 
 # Sources the UI may dispatch and read letters for; keyless sources are real

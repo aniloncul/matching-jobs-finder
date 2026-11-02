@@ -27,3 +27,5 @@ data/artifacts/
 # UI-managed secrets (Setup view) - never commit
 config/settings.local.json
 config/google-service-account.json
+data/settings.local.json
+data/google-service-account.json

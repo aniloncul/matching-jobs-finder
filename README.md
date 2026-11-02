@@ -103,7 +103,25 @@ The app is local-first: nothing leaves your machine. A user who never touches a 
 - **Google Sheet** - paste the share link of your own sheet and upload or paste the service-account JSON. The job id is parsed from the link, the key is stored as `config/google-service-account.json` (0600, git-ignored), and the UI shows the `client_email` to share the sheet with as Editor. `Test` opens the sink and reads a row.
 - **Optional keys** - Browse AI, for one more keyless source.
 
-Everything the Setup view writes lands in `config/settings.local.json`, which loads **after** `config/search.yaml` and **before** the environment - `.env` and CI overrides keep working exactly as before.
+Everything the Setup view writes lands in `config/settings.local.json`, which loads **after** `config/search.yaml` and **before** the environment - `.env` and CI overrides keep working exactly as before. In containers the file locations move with `JOBSCOUT_USER_SETTINGS` and `JOBSCOUT_GOOGLE_SA_FILE` so they can live on a persistent volume.
+
+## Deploy (Fly.io)
+
+The app is long-lived by design - background run threads, an open SSE stream, a writable `data/` directory, LaTeX and Chromium inside the image. That rules out serverless hosts (Vercel and friends); what fits instead is one small persistent container per user. [Fly.io](https://fly.io) works well and the repo ships the config for it:
+
+```bash
+fly launch --no-deploy            # uses the Dockerfile + fly.toml in this repo
+fly volumes create jobscout_data --size 1
+fly secrets set JOBSCOUT_PASSWORD="pick-a-real-password"
+fly deploy
+fly open                          # then open /#setup and configure your keys
+```
+
+- `fly.toml` mounts the volume at `/app/data` and points the Setup-view secrets (`JOBSCOUT_USER_SETTINGS`, `JOBSCOUT_GOOGLE_SA_FILE`) and browser profiles there, so jobs, CVs, caches and keys survive redeploys.
+- `JOBSCOUT_PASSWORD` turns on HTTP basic auth for every route (health check excepted) - set it, or anyone who finds the URL can start scans with your keys. Username defaults to `jobscout`; override with `JOBSCOUT_USERNAME`.
+- `auto_stop_machines = false` keeps the machine up so scans and the live event stream are never cut mid-run; comment it out if you want it to sleep when idle.
+
+The same image works on Railway/Render/a VPS: it listens on `0.0.0.0:8000`, and everything stateful lives under `/app/data` - mount a disk there.
 
 ## Model providers
 

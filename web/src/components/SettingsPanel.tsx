@@ -99,7 +99,7 @@ export function SettingsPanel() {
           <p className="profile-subtitle">
             This app runs entirely on your machine. Connect your own model
             endpoint and your own Google Sheet - keys are stored locally in
-            config/settings.local.json and never leave this computer.
+            settings.local.json and never leave this computer.
           </p>
         </div>
       </div>

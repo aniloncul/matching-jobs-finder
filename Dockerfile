@@ -27,27 +27,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Tectonic for offline/local LaTeX PDF compilation
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.tectonic-typesetting.net | sh \
-    && mv tectonic /usr/local/bin/
+# Install Tectonic for offline/local LaTeX PDF compilation (static musl
+# builds, pinned; the drop-installer picks a gnu arm64 asset that does not
+# exist, so fetch the release directly per architecture).
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in \
+         amd64) TARGET=x86_64-unknown-linux-musl ;; \
+         arm64) TARGET=aarch64-unknown-linux-musl ;; \
+         *) echo "unsupported architecture: $ARCH" && exit 1 ;; \
+       esac \
+    && curl --proto '=https' --tlsv1.2 -fsSL \
+       "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.17.0/tectonic-0.17.0-${TARGET}.tar.gz" \
+       | tar xz -C /usr/local/bin tectonic \
+    && tectonic --version
 
 # Copy Python dependency files and install
 COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir -e .
+COPY jobscout/ ./jobscout/
+RUN pip install --no-cache-dir .
 
 # Install Playwright browser dependencies and chromium
 RUN python -m playwright install --with-deps chromium
 
 # Copy application code and built frontend
-COPY jobscout/ ./jobscout/
 COPY config/ ./config/
 COPY templates/ ./templates/
-COPY data/ ./data/
 COPY --from=frontend-builder /app/web/dist ./web/dist
 
-# Ensure runtime directories exist
-RUN mkdir -p /app/data/cover_letters /app/data/embeddings /app/.browser-profiles
+# Everything persistent lives under /app/data: mount a volume there and the
+# jobs CSV, CVs, cover letters, caches, the Setup-view secrets and browser
+# profiles all survive restarts and redeploys.
+ENV JOBSCOUT_HOST=0.0.0.0 \
+    JOBSCOUT_PORT=8000 \
+    JOBSCOUT_USER_SETTINGS=/app/data/settings.local.json \
+    JOBSCOUT_GOOGLE_SA_FILE=/app/data/google-service-account.json \
+    COVER_LETTER_PROFILE=/app/data/profile.yaml \
+    JOBSCOUT_CV_MASTER=/app/data/cv.master.yaml \
+    BROWSER_PROFILE_DIR=/app/data/browser-profiles
+RUN mkdir -p /app/data
 
 EXPOSE 8000
 
-CMD ["uvicorn", "jobscout.server:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
+    CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
+
+CMD ["uvicorn", "jobscout.ui.server:app", "--host", "0.0.0.0", "--port", "8000"]
