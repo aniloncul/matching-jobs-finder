@@ -5,6 +5,7 @@ import type {
   CvBatchStartResponse,
   CvBuildResponse,
   CvImportResponse,
+  CvReuseCheck,
   JobListing,
   ProfileData,
   ProfileStatus,
@@ -140,10 +141,23 @@ export function buildCv(
   source: string,
   jobId: string,
   force = false,
+  reuseFrom?: string | null,
 ): Promise<CvBuildResponse> {
   return request<CvBuildResponse>("/api/cv", {
     method: "POST",
-    body: JSON.stringify({ source, job_id: jobId, force }),
+    body: JSON.stringify({
+      source,
+      job_id: jobId,
+      force,
+      reuse_from: reuseFrom ?? null,
+    }),
+  });
+}
+
+export function checkCvReuse(source: string, jobId: string): Promise<CvReuseCheck> {
+  return request<CvReuseCheck>("/api/cv/reuse-check", {
+    method: "POST",
+    body: JSON.stringify({ source, job_id: jobId }),
   });
 }
 

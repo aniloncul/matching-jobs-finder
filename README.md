@@ -190,6 +190,25 @@ pipeline for that one job (`POST /api/cv`), streams progress to the Writer agent
 offers the resulting **CV TEX / CV PDF** links. The job description is fetched lazily — only
 when you build for the selected job — exactly like the cover letter.
 
+The **Batch CVs** button tailors the top-fit saved jobs that do not have a CV yet, sequentially
+on a background thread (fit score first, will-apply filter, `1-25` jobs, cancel anytime) with a
+live progress card in the UI.
+
+Before building for a job that has no CV yet, the UI asks a **JD-similarity reuse check**
+(career-ops `jd:similarity`): the posting's description is compared, token-set overlap plus a
+seniority gate, against the descriptions behind every CV already in `data/cv/`. A near-duplicate
+answers **reuse** (45-72% answers **reuse with edits**, anything else **regenerate**), and the
+seniority gate forces **regenerate** when the two postings name two different levels - a Junior
+CV is never suggested for a Lead posting. It is a recommendation only: declining builds a fresh
+CV as before, and a reuse copies the matching artifacts under the new job key with a
+`reused_from` provenance entry instead of calling the model. CLI equivalents:
+
+```bash
+uv run jobscout cv reuse --source linkedin --id 123          # just the recommendation
+uv run jobscout cv reuse --source linkedin --id 123 --apply  # copy the best candidate
+uv run jobscout cv reuse --source linkedin --id 123 --from arbeitnow-xyz --apply  # override
+```
+
 ```yaml
 name: "Your Name"
 headline: "AI Engineer"

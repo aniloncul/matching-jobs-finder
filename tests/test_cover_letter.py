@@ -1017,3 +1017,111 @@ def test_cv_batch_conflict_cancel_and_error_isolation(monkeypatch, tmp_path) -> 
 
     # Idle cancel is refused.
     assert client.post("/api/cv/batch/cancel").status_code == 409
+
+
+def test_cv_reuse_check_endpoint(monkeypatch, tmp_path) -> None:
+    from fastapi.testclient import TestClient
+    from jobscout.models import Job
+    from jobscout.ui import server
+
+    monkeypatch.setattr(server.settings.cv, "output_dir", tmp_path / "cv")
+    monkeypatch.setattr(server.settings.cv, "enabled", True)
+    monkeypatch.setattr(
+        server.settings.cover_letter, "description_dir", tmp_path / "descriptions"
+    )
+
+    jd = ("Senior Data Engineer mit Python, PySpark, Airflow und SQL "
+          "f\u00fcr Data Pipelines in AWS.")
+    other = ("Social Media Manager f\u00fcr Instagram und TikTok, Kampagnen "
+             "und Community Management.")
+
+    def make(job_id: str, description: str) -> Job:
+        return Job(
+            company=f"C-{job_id}", title="Engineer",
+            link=f"https://example.invalid/{job_id}",
+            source="linkedin", job_id=job_id, description=description,
+        )
+
+    jobs = [make("src", jd), make("twin", jd), make("far", other)]
+
+    class FakeSink:
+        def list_jobs(self, limit=100):
+            return list(jobs)
+
+    monkeypatch.setattr(server, "build_sink", lambda *_a, **_k: FakeSink())
+    client = TestClient(server.app)
+
+    from jobscout.cover_letter.description_store import save_job_description
+    from jobscout.cv.pipeline import cv_paths
+
+    save_job_description(server.settings, jobs[0], jd)
+    paths = cv_paths(server.settings, "linkedin-src")
+    paths["json"].write_text('{"job": {"source": "linkedin", "job_id": "src"}}',
+                             encoding="utf-8")
+
+    hit = client.post("/api/cv/reuse-check", json={"source": "linkedin", "job_id": "twin"})
+    assert hit.status_code == 200
+    body = hit.json()
+    assert body["jd_available"] is True
+    best = body["best"]
+    assert best["key"] == "linkedin-src" and best["decision"] == "reuse"
+
+    miss = client.post("/api/cv/reuse-check", json={"source": "linkedin", "job_id": "far"})
+    assert miss.json()["best"]["decision"] == "regenerate"
+
+    gone = client.post("/api/cv/reuse-check", json={"source": "linkedin", "job_id": "zzz"})
+    assert gone.status_code == 404
+
+
+def test_cv_endpoint_reuse_from_copies_instead_of_building(monkeypatch, tmp_path) -> None:
+    from fastapi.testclient import TestClient
+    from jobscout.models import Job
+    from jobscout.ui import server
+
+    monkeypatch.setattr(server.settings.cv, "output_dir", tmp_path / "cv")
+    monkeypatch.setattr(server.settings.cv, "enabled", True)
+
+    job = Job(company="Nova", title="Engineer", link="https://example.invalid/1",
+              source="linkedin", job_id="dst")
+
+    class FakeSink:
+        def list_jobs(self, limit=100):
+            return [job]
+
+    monkeypatch.setattr(server, "build_sink", lambda *_a, **_k: FakeSink())
+    client = TestClient(server.app)
+
+    calls: list[tuple] = []
+
+    def fake_reuse(settings, target_job, source_key):
+        from jobscout.cv.pipeline import CVBuildResult, cv_paths
+
+        calls.append((target_job.job_id, source_key))
+        paths = cv_paths(settings, f"linkedin-{target_job.job_id}")
+        paths["tex"].write_text("cv", encoding="utf-8")
+        return CVBuildResult(
+            key=paths["tex"].stem, tex_path=str(paths["tex"]),
+            payload_path="", metadata_path="", reused=True, verdict="pass",
+        )
+
+    def never_build(*_a, **_k):  # a reuse must not reach the LLM path
+        raise AssertionError("build_cv must not run when reuse_from is set")
+
+    monkeypatch.setattr("jobscout.cv.pipeline.reuse_cv", fake_reuse)
+    monkeypatch.setattr("jobscout.cv.pipeline.build_cv", never_build)
+
+    response = client.post(
+        "/api/cv",
+        json={"source": "linkedin", "job_id": "dst", "reuse_from": "linkedin-src"},
+    )
+    assert response.status_code == 200
+    assert calls == [("dst", "linkedin-src")]
+    cv = response.json()["cv"]
+    assert cv["reused"] is True and cv["key"] == "linkedin-dst"
+
+    # A malformed key is rejected before touching the filesystem.
+    bad = client.post(
+        "/api/cv",
+        json={"source": "linkedin", "job_id": "dst", "reuse_from": "../escape"},
+    )
+    assert bad.status_code == 422

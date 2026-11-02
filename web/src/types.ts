@@ -267,6 +267,25 @@ export interface CvBatchStartResponse {
   }[];
 }
 
+export interface CvReuseCandidate {
+  key: string;
+  source: string;
+  job_id: string;
+  company: string;
+  title: string;
+  decision: "reuse" | "reuse-with-edits" | "regenerate";
+  score: number;
+  reason: string;
+  has_pdf: boolean;
+}
+
+export interface CvReuseCheck {
+  new_key: string;
+  jd_available: boolean;
+  best: CvReuseCandidate | null;
+  candidates: CvReuseCandidate[];
+}
+
 
 export interface ExperienceData {
   company: string;

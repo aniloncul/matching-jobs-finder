@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   buildCv,
   cancelCvBatch,
+  checkCvReuse,
   deleteJob,
   generateCoverLetter,
   getCvBatch,
@@ -302,11 +303,37 @@ export function CoverLetters() {
     setNotice(null);
     setCvStage("Preparing the master CV…");
 
+    // JD-similarity recommendation (career-ops jd-similarity): before building
+    // a fresh CV, ask whether an existing tailored CV already covers this
+    // posting. Recommendation only - declining falls through to a full build.
+    let reuseFrom: string | null = null;
+    if (!job.has_cv_tex) {
+      setCvStage("Checking similar CVs…");
+      try {
+        const check = await checkCvReuse(job.source, job.job_id);
+        const best = check.best;
+        if (best && best.decision !== "regenerate") {
+          const pct = Math.round(best.score * 100);
+          reuseFrom =
+            window.confirm(
+              best.decision === "reuse"
+                ? `“${best.title}” at ${best.company} is ${pct}% similar to this posting.\n\nReuse its CV for ${job.company} instead of building a new one?`
+                : `“${best.title}” at ${best.company} is ${pct}% similar — reusable with small edits.\n\nCopy its CV for ${job.company} now, or build a fresh one?`,
+            )
+              ? best.key
+              : null;
+        }
+      } catch {
+        // The recommendation is optional; a failed check never blocks a build.
+      }
+    }
+    if (reuseFrom) setCvStage("Copying the matching CV…");
+
     const t1 = setTimeout(() => setCvStage("Tailoring bullets to the job description…"), 3000);
     const t2 = setTimeout(() => setCvStage("Verifying facts and rendering LaTeX…"), 9000);
 
     try {
-      const response = await buildCv(job.source, job.job_id, Boolean(job.has_cv_tex));
+      const response = await buildCv(job.source, job.job_id, Boolean(job.has_cv_tex), reuseFrom);
       clearTimeout(t1);
       clearTimeout(t2);
       setJobs((previous) =>
@@ -323,7 +350,7 @@ export function CoverLetters() {
       );
       const cv = response.cv;
       const parts = [`${job.company} · ${job.title}`];
-      if (cv.reused) parts.push("existing CV");
+      if (cv.reused) parts.push(reuseFrom ? `reused CV from ${reuseFrom}` : "existing CV");
       else parts.push(`CV ${cv.verdict.toUpperCase()} · coverage ${cv.coverage_pct}%`);
       if (cv.blocked) parts.push(`PDF blocked: ${cv.blockers.join("; ")}`);
       else if (cv.ats_score !== null) parts.push(`ATS ${cv.ats_score}/100 (${cv.ats_grade})`);

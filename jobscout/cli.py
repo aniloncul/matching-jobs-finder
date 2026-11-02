@@ -108,6 +108,29 @@ def main(argv: list[str] | None = None) -> int:
     cv_gaps.add_argument("--limit", type=int, default=25, help="Max saved jobs to scan")
     cv_gaps.add_argument("--json", action="store_true", help="Machine-readable output")
 
+    cv_reuse = cv_sub.add_parser(
+        "reuse",
+        help="Recommend reusing an existing CV for a saved job (JD similarity)",
+    )
+    cv_reuse.add_argument(
+        "--source",
+        choices=["linkedin", "indeed", *KEYLESS_SOURCE_NAMES],
+        required=True,
+    )
+    cv_reuse.add_argument("--id", dest="job_id", required=True)
+    cv_reuse.add_argument(
+        "--from",
+        dest="from_key",
+        default=None,
+        help="Reuse this CV key explicitly instead of the best candidate",
+    )
+    cv_reuse.add_argument(
+        "--apply",
+        action="store_true",
+        help="Copy the chosen CV under this job's key",
+    )
+    cv_reuse.add_argument("--json", action="store_true", help="Machine-readable output")
+
     index_parser = sub.add_parser(
         "index", help="Searchable artifact archive (data/artifacts)"
     )
@@ -417,7 +440,9 @@ def _cv(args: argparse.Namespace) -> int:
         return _cv_build(args)
     if command == "gaps":
         return _cv_gaps(args)
-    print("usage: jobscout cv build|gaps", file=sys.stderr)
+    if command == "reuse":
+        return _cv_reuse(args)
+    print("usage: jobscout cv build|gaps|reuse", file=sys.stderr)
     return 2
 
 
@@ -504,6 +529,83 @@ def _cv_build(args: argparse.Namespace) -> int:
     if result.blocked:
         return 1
     return 0 if not result.pdf_error else 1
+
+
+def _cv_reuse(args: argparse.Namespace) -> int:
+    from jobscout.cv.pipeline import CVBuildError, reuse_cv
+    from jobscout.cv.similarity import recommend_cv_reuse
+
+    settings = load_settings()
+    if not settings.cv.enabled:
+        print(
+            "The CV pipeline is disabled. Set JOBSCOUT_CV_ENABLED=1 to enable it.",
+            file=sys.stderr,
+        )
+        return 2
+    job = _find_saved_job(args.source, args.job_id)
+    if job is None:
+        print(f"No saved job {args.source}/{args.job_id}.", file=sys.stderr)
+        return 2
+
+    check = recommend_cv_reuse(settings, job)
+    chosen = None
+    if args.from_key:
+        chosen = next((c for c in check.candidates if c.key == args.from_key), None)
+        if chosen is None:
+            # The explicit key is allowed even without a similarity candidate:
+            # the human decides, the recommendation layer only informs.
+            from jobscout.cv.pipeline import cv_paths
+
+            if not cv_paths(settings, args.from_key)["tex"].exists():
+                print(f"No CV with key '{args.from_key}'.", file=sys.stderr)
+                return 2
+    else:
+        chosen = check.best
+
+    payload = {"check": check.to_dict()}
+    if args.apply:
+        if chosen is None:
+            print("Nothing to reuse: no comparable CV found for this job.", file=sys.stderr)
+            return 1
+        if chosen.decision == "regenerate" and not args.from_key:
+            payload["applied"] = None
+            payload["note"] = (
+                f"Recommendation is to regenerate ({chosen.reason}), refusing to copy. "
+                "Use `cv build` or pass --from <key> to override."
+            )
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                print(f"Recommendation: regenerate ({chosen.reason}). Nothing copied.")
+            return 1
+        try:
+            result = reuse_cv(settings, job, args.from_key or chosen.key)
+        except CVBuildError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        payload["applied"] = result.to_dict()
+
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if not check.jd_available:
+        print("No job description available to compare; build the CV instead.")
+    elif not check.candidates:
+        print("No existing CV to compare against yet.")
+    else:
+        print(f"Reuse check for {args.source}/{args.job_id}:")
+        for cand in check.candidates:
+            print(
+                f"  {cand.decision:<16} {cand.score:>5.0%}  {cand.key}"
+                f"  ({cand.company} · {cand.title})"
+            )
+        best = check.best
+        if best:
+            print(f"Recommendation: {best.decision} from {best.key} ({best.reason})")
+    if args.apply and payload.get("applied"):
+        print(f"Copied to {payload['applied']['key']} -> {payload['applied']['tex_path']}")
+    return 0
 
 
 def _cv_gaps(args: argparse.Namespace) -> int:

@@ -383,6 +383,93 @@ def build_cv(
     return result
 
 
+def reuse_cv(settings: Settings, job: Job, source_key: str) -> CVBuildResult:
+    """Copy an already-tailored CV under ``job``'s key instead of rebuilding.
+
+    Used when the JD-similarity check recommends reuse: the artifacts are
+    duplicated verbatim, only the metadata is re-stamped for the new job with
+    a ``reused_from`` provenance entry.  Nothing is deleted and the source CV
+    keeps living under its own key.
+    """
+    import shutil  # noqa: PLC0415 - local: only the copy path needs it
+
+    source = cv_paths(settings, source_key)
+    if not source["tex"].exists():
+        raise CVBuildError(f"No CV to reuse under key '{source_key}'")
+    target_key = cv_key(job)
+    target = cv_paths(settings, target_key)
+
+    copied: list[str] = []
+    for kind in ("tex", "pdf", "payload", "json"):
+        if source[kind].exists():
+            shutil.copyfile(source[kind], target[kind])
+            copied.append(kind)
+
+    metadata: dict[str, Any] = {}
+    if target["json"].exists():
+        try:
+            metadata = json.loads(target["json"].read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - stale json must not block the copy
+            metadata = {}
+    source_meta_job = metadata.get("job") if isinstance(metadata.get("job"), dict) else {}
+    metadata.update(
+        {
+            "key": target_key,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "job": {
+                "source": job.source.value,
+                "job_id": job.job_id,
+                "company": job.company,
+                "title": job.title,
+                "link": job.link,
+            },
+            "reused": True,
+            "reused_from": {
+                "key": source_key,
+                "source": str((source_meta_job or {}).get("source") or ""),
+                "job_id": str((source_meta_job or {}).get("job_id") or ""),
+                "company": str((source_meta_job or {}).get("company") or ""),
+                "title": str((source_meta_job or {}).get("title") or ""),
+            },
+        }
+    )
+    target["json"].write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    verification = metadata.get("verification") or {}
+    pdf_path = str(target["pdf"]) if target["pdf"].exists() else None
+    artifacts = store_for(settings)
+    artifacts.link_document(job.source.value, job.job_id, "cv-tex", target["tex"])
+    artifacts.link_document(job.source.value, job.job_id, "cv-json", target["json"])
+    if pdf_path:
+        artifacts.link_document(job.source.value, job.job_id, "cv-pdf", pdf_path)
+
+    return CVBuildResult(
+        key=target_key,
+        tex_path=str(target["tex"]),
+        payload_path=str(target["payload"]),
+        metadata_path=str(target["json"]),
+        verdict=str(
+            metadata.get("verdict") or verification.get("verdict") or "pass"
+        ),
+        blockers=[str(item) for item in verification.get("blockers", [])],
+        warnings=[str(item) for item in verification.get("warnings", [])],
+        gaps=[item for item in metadata.get("gaps", []) if isinstance(item, dict)],
+        coverage_pct=float(
+            ((metadata.get("tailoring") or {}).get("coverage") or {}).get(
+                "coverage_pct", 0.0
+            )
+            or 0.0
+        ),
+        pdf_path=pdf_path,
+        pages=metadata.get("pages"),
+        ats_score=(metadata.get("ats") or {}).get("score"),
+        ats_grade=(metadata.get("ats") or {}).get("grade"),
+        reused=True,
+    )
+
+
 def config_profile_path(settings: Settings) -> Path:
     return settings.cover_letter.profile_path
 

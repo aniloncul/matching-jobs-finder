@@ -102,6 +102,28 @@ class CvBuildRequest(BaseModel):
     force: bool = False
     no_llm: bool = False
     review: bool = False
+    reuse_from: str | None = Field(default=None, max_length=200)
+
+    @field_validator("source")
+    @classmethod
+    def _known_source(cls, value: str) -> str:
+        if value not in JOB_SOURCES:
+            raise ValueError(f"Unknown source: {value}")
+        return value
+
+    @field_validator("reuse_from")
+    @classmethod
+    def _safe_key(cls, value: str | None) -> str | None:
+        import re
+
+        if value is not None and not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+            raise ValueError("reuse_from must be a CV key")
+        return value
+
+
+class CvReuseCheckRequest(BaseModel):
+    source: str
+    job_id: str = Field(min_length=1, max_length=200)
 
     @field_validator("source")
     @classmethod
@@ -855,7 +877,7 @@ def _cv_urls(paths: dict, key: str) -> dict[str, str | None]:
 @app.post("/api/cv")
 def build_cv_endpoint(payload: CvBuildRequest) -> dict:
     """Build the tailored CV for one selected job (same path as `jobscout cv build`)."""
-    from jobscout.cv.pipeline import CVBuildError, build_cv, cv_paths
+    from jobscout.cv.pipeline import CVBuildError, build_cv, cv_paths, reuse_cv
 
     if not settings.cv.enabled:
         raise HTTPException(
@@ -870,9 +892,11 @@ def build_cv_endpoint(payload: CvBuildRequest) -> dict:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    reuse_from = (payload.reuse_from or "").strip() or None
+
     manager.writer_status(
         AgentStatus.working,
-        f"Building CV · {job.company}",
+        f"Building CV · {job.company}" if not reuse_from else f"Reusing CV · {job.company}",
         0.02,
     )
     manager.writer_message(f"Building a tailored CV for {job.company}")
@@ -880,6 +904,7 @@ def build_cv_endpoint(payload: CvBuildRequest) -> dict:
         f"Received CV build request for {job.company} · {job.title}"
         + (" · reviewer" if payload.review else "")
         + (" · deterministic" if payload.no_llm else "")
+        + (f" · reuse from {reuse_from}" if reuse_from else "")
     )
 
     def progress(task: str, value: float | None = None) -> None:
@@ -887,14 +912,18 @@ def build_cv_endpoint(payload: CvBuildRequest) -> dict:
         manager.writer_log(task if value is None else f"{task} ({int(value * 100)}%)")
 
     try:
-        result = build_cv(
-            settings,
-            job=job,
-            use_llm=False if payload.no_llm else None,
-            use_reviewer=True if payload.review else None,
-            force=payload.force,
-            on_progress=progress,
-        )
+        if reuse_from:
+            result = reuse_cv(settings, job, reuse_from)
+            progress("CV copied from an existing tailored CV", 1.0)
+        else:
+            result = build_cv(
+                settings,
+                job=job,
+                use_llm=False if payload.no_llm else None,
+                use_reviewer=True if payload.review else None,
+                force=payload.force,
+                on_progress=progress,
+            )
     except CVBuildError as exc:
         manager.writer_status(AgentStatus.error, str(exc))
         manager.writer_message(str(exc), kind="error")
@@ -920,6 +949,26 @@ def build_cv_endpoint(payload: CvBuildRequest) -> dict:
         + (f" · PDF {result.pages} pages" if result.pdf_path else "")
     )
     return {"cv": result.to_dict(), "urls": _cv_urls(cv_paths(settings, result.key), result.key)}
+
+
+@app.post("/api/cv/reuse-check")
+def cv_reuse_check(payload: CvReuseCheckRequest) -> dict:
+    """Recommend reuse / reuse-with-edits / regenerate before building a CV.
+
+    Pure recommendation (career-ops jd-similarity semantics): it reads the
+    saved job descriptions of existing CVs and scores them against this job's
+    JD.  It never regenerates, blocks or deletes anything.
+    """
+    from jobscout.cv.similarity import recommend_cv_reuse
+
+    try:
+        sink = build_sink(settings)
+        job = _find_job(sink.list_jobs(limit=500), payload.source, payload.job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read jobs: {exc}") from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return recommend_cv_reuse(settings, job).to_dict()
 
 
 @app.get("/api/cv/{key}/{kind}")
