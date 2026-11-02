@@ -23,3 +23,7 @@ data/*.sqlite3
 probe_key.py
 reference-repos/
 data/artifacts/
+
+# UI-managed secrets (Setup view) - never commit
+config/settings.local.json
+config/google-service-account.json

@@ -9,6 +9,8 @@ import type {
   JobListing,
   ProfileData,
   ProfileStatus,
+  SettingsSummary,
+  SettingsTestResult,
   SnapshotEvent,
 } from "./types";
 
@@ -159,6 +161,59 @@ export function checkCvReuse(source: string, jobId: string): Promise<CvReuseChec
     method: "POST",
     body: JSON.stringify({ source, job_id: jobId }),
   });
+}
+
+export function getSettings(): Promise<SettingsSummary> {
+  return request<SettingsSummary>("/api/settings");
+}
+
+export function saveLlmSettings(patch: {
+  provider?: string;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  allowRemote?: boolean;
+}): Promise<SettingsSummary> {
+  return request<SettingsSummary>("/api/settings/llm", {
+    method: "POST",
+    body: JSON.stringify({
+      provider: patch.provider,
+      base_url: patch.baseUrl,
+      model: patch.model,
+      api_key: patch.apiKey,
+      allow_remote: patch.allowRemote,
+    }),
+  });
+}
+
+export function saveSinkSettings(patch: {
+  mode?: string;
+  sheetUrl?: string;
+  serviceAccountJson?: string;
+}): Promise<SettingsSummary> {
+  return request<SettingsSummary>("/api/settings/sink", {
+    method: "POST",
+    body: JSON.stringify({
+      mode: patch.mode,
+      sheet_url: patch.sheetUrl,
+      service_account_json: patch.serviceAccountJson,
+    }),
+  });
+}
+
+export function saveSourceKeys(baApiKey: string): Promise<SettingsSummary> {
+  return request<SettingsSummary>("/api/settings/sources", {
+    method: "POST",
+    body: JSON.stringify({ ba_api_key: baApiKey }),
+  });
+}
+
+export function testLlmSettings(): Promise<SettingsTestResult> {
+  return request<SettingsTestResult>("/api/settings/test/llm", { method: "POST" });
+}
+
+export function testSinkSettings(): Promise<SettingsTestResult> {
+  return request<SettingsTestResult>("/api/settings/test/sink", { method: "POST" });
 }
 
 export function startCvBatch(options?: {

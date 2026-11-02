@@ -5,6 +5,7 @@ import { AgentLogModal } from "./components/AgentLogModal";
 import { ControlBar } from "./components/ControlBar";
 import { CoverLetters } from "./components/CoverLetters";
 import { ProfileEditor } from "./components/ProfileEditor";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { EventFeed } from "./components/EventFeed";
 import { TopBar } from "./components/TopBar";
 import { useRunStream } from "./hooks/useRunStream";
@@ -92,6 +93,7 @@ export default function App() {
           <CoverLetters />
         ) : null}
         {section === "profile" ? <ProfileEditor alwaysEdit /> : null}
+        {section === "setup" ? <SettingsPanel /> : null}
       </main>
 
       {activeAgent && selectedAgent ? (

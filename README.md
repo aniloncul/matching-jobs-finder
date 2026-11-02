@@ -95,6 +95,16 @@ uv run jobscout run --sources boards     # just one
 
 The UI has a **KEYLESS** button for the same set. Empty `query`/`location` fall back to the LinkedIn search terms. Jobs keep per-fetcher provenance (`Source` = `boards`/`arbeitnow`/`hn`/`ba`/`rss`) plus `canonical_url` and `requisition_id`, so cross-source duplicates collapse in the sheet. Without a BA key the source reports status `blocked` with setup instructions instead of pretending it is empty.
 
+## In-app Setup (bring your own keys)
+
+The app is local-first: nothing leaves your machine. A user who never touches a terminal configures everything on the **SETUP** tab (`jobscout serve` → http://127.0.0.1:8000/#setup):
+
+- **Model** - provider, base URL, model and API key for the writer. `Test` sends one tiny chat request; the key is stored only in `config/settings.local.json` (0600, git-ignored) and every read endpoint returns it masked (`****abcd`).
+- **Google Sheet** - paste the share link of your own sheet and upload or paste the service-account JSON. The job id is parsed from the link, the key is stored as `config/google-service-account.json` (0600, git-ignored), and the UI shows the `client_email` to share the sheet with as Editor. `Test` opens the sink and reads a row.
+- **Optional keys** - Browse AI, for one more keyless source.
+
+Everything the Setup view writes lands in `config/settings.local.json`, which loads **after** `config/search.yaml` and **before** the environment - `.env` and CI overrides keep working exactly as before.
+
 ## Model providers
 
 All LLM calls (fit scoring, cover letters, CV tailoring) go through one OpenAI-shaped transport in `jobscout/llm.py`. `COVER_LETTER_PROVIDER=auto` infers the provider from `COVER_LETTER_BASE_URL` (`api.anthropic.com` → Anthropic, `generativelanguage.googleapis.com` → Gemini, loopback → ollama, anything else → OpenAI-compatible), or set it explicitly. Safety rule: a **non-loopback ollama URL is refused** unless you opt in with `OLLAMA_ALLOW_REMOTE=1`, because ollama is unauthenticated and would receive your whole profile. Ollama-only knobs (`num_ctx`) are only sent to local servers.

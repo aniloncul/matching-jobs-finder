@@ -9,6 +9,7 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
+from jobscout.user_config import deep_merge, read_overlay, sheet_id_from_url
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -206,6 +207,8 @@ def load_settings(path: str | Path | None = None) -> Settings:
     raw: dict = {}
     if config_path.exists():
         raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    # The UI's Setup view writes this overlay; real env vars still win.
+    raw = deep_merge(raw, read_overlay())
 
     profile_dir = Path(os.getenv("BROWSER_PROFILE_DIR", str(ROOT / ".browser-profiles")))
     if not profile_dir.is_absolute():
@@ -225,13 +228,26 @@ def load_settings(path: str | Path | None = None) -> Settings:
 
     service_account = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
     service_account_path = Path(service_account) if service_account else None
+    if service_account_path is None and raw.get("google_service_account_json"):
+        service_account_path = Path(str(raw["google_service_account_json"]))
     if service_account_path and not service_account_path.is_absolute():
         service_account_path = ROOT / service_account_path
 
     raw["root"] = ROOT
-    raw["google_sheet_id"] = os.getenv("GOOGLE_SHEET_ID", "").strip() or None
+    sheet_url = (
+        os.getenv("GOOGLE_SHEET_URL", "").strip()
+        or str(raw.get("google_sheet_url") or "").strip()
+        or None
+    )
+    sheet_id = (
+        os.getenv("GOOGLE_SHEET_ID", "").strip()
+        or sheet_id_from_url(sheet_url)
+        or str(raw.get("google_sheet_id") or "").strip()
+        or None
+    )
+    raw["google_sheet_id"] = sheet_id
+    raw["google_sheet_url"] = sheet_url
     raw["google_service_account_json"] = service_account_path
-    raw["google_sheet_url"] = os.getenv("GOOGLE_SHEET_URL", "").strip() or None
     raw["local_jobs_csv"] = ROOT / "data" / "jobs.csv"
     raw["local_runs_csv"] = ROOT / "data" / "runs.csv"
 

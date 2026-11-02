@@ -140,6 +140,44 @@ class CvBatchRequest(BaseModel):
     force: bool = False
 
 
+class LlmSettingsRequest(BaseModel):
+    """Every field is optional; omitted fields keep their stored value."""
+
+    provider: str | None = Field(default=None, max_length=40)
+    base_url: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=200)
+    api_key: str | None = Field(default=None, max_length=400)  # "" clears it
+    allow_remote: bool | None = None
+
+    @field_validator("provider")
+    @classmethod
+    def _known_provider(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip().lower()
+        if value not in {"auto", "openai", "ollama", "anthropic", "gemini"}:
+            raise ValueError("Unknown provider")
+        return value
+
+
+class SinkSettingsRequest(BaseModel):
+    mode: str = "auto"
+    sheet_url: str | None = Field(default=None, max_length=500)
+    service_account_json: str | None = None
+
+    @field_validator("mode")
+    @classmethod
+    def _known_mode(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in {"auto", "local", "google"}:
+            raise ValueError("Unknown sink mode")
+        return value
+
+
+class SourceKeyRequest(BaseModel):
+    ba_api_key: str | None = Field(default=None, max_length=400)  # "" clears it
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True, "run": manager.state.run_id, "status": manager.state.status}
@@ -317,6 +355,196 @@ def _profile_payload(profile: Profile | None, issues: list[str]) -> dict:
         "path": str(settings.cover_letter.profile_path),
         "issues": issues,
         "profile": profile.model_dump(mode="json") if profile else None,
+    }
+
+
+# ── Setup: LLM / sink configuration owned by the user, not the .env ───
+
+
+def _mask_key(key: str | None) -> str | None:
+    if not key:
+        return None
+    return f"****{key[-4:]}" if len(key) > 8 else "****"
+
+
+def _relative_to_root(path: Path) -> str:
+    try:
+        return str(path.relative_to(settings.root))
+    except ValueError:
+        return str(path)
+
+
+def _settings_summary() -> dict:
+    from jobscout.user_config import service_account_email
+
+    cover_letter = settings.cover_letter
+    sa_path = settings.google_service_account_json
+    return {
+        "llm": {
+            "provider": cover_letter.provider,
+            "base_url": cover_letter.base_url,
+            "model": cover_letter.model,
+            "has_key": bool(cover_letter.api_key),
+            "key_hint": _mask_key(cover_letter.api_key),
+            "allow_remote": cover_letter.allow_remote,
+        },
+        "sink": {
+            "mode": settings.sink,
+            "sheet_url": settings.google_sheet_url,
+            "sheet_id": settings.google_sheet_id,
+            "has_service_account": bool(sa_path and Path(str(sa_path)).exists()),
+            "service_account_email": service_account_email(sa_path),
+        },
+        "sources": {"ba_has_key": bool(settings.sources.keyless.ba_api_key)},
+    }
+
+
+@app.get("/api/settings")
+def settings_summary() -> dict:
+    """Current setup state. Secrets are masked - never returned raw."""
+    return _settings_summary()
+
+
+@app.post("/api/settings/llm")
+def save_llm_settings(payload: LlmSettingsRequest) -> dict:
+    """Persist LLM endpoint/key/model from the Setup view and apply live."""
+    from jobscout.user_config import update_overlay
+
+    patch: dict = {}
+    for name in ("provider", "base_url", "model", "api_key"):
+        value = getattr(payload, name)
+        if value is not None:
+            patch[name] = value.strip() if isinstance(value, str) else value
+    if payload.allow_remote is not None:
+        patch["allow_remote"] = payload.allow_remote
+    if patch:
+        update_overlay({"cover_letter": patch})
+        cover_letter = settings.cover_letter
+        if "provider" in patch:
+            cover_letter.provider = patch["provider"] or "auto"
+        if "base_url" in patch:
+            cover_letter.base_url = patch["base_url"] or cover_letter.base_url
+        if "model" in patch:
+            cover_letter.model = patch["model"] or cover_letter.model
+        if "api_key" in patch:
+            # Empty string clears the key (falls back to local ollama/no key).
+            cover_letter.api_key = patch["api_key"] or None
+        if "allow_remote" in patch:
+            cover_letter.allow_remote = bool(patch["allow_remote"])
+    return _settings_summary()
+
+
+@app.post("/api/settings/sink")
+def save_sink_settings(payload: SinkSettingsRequest) -> dict:
+    """Store the sink mode, the user's sheet link, and the service account."""
+    from jobscout.user_config import (
+        SERVICE_ACCOUNT_PATH,
+        save_service_account,
+        sheet_id_from_url,
+        update_overlay,
+    )
+
+    patch: dict = {"sink": payload.mode}
+    sheet_url = None
+    sheet_id = None
+    changed_url = payload.sheet_url is not None
+    if changed_url:
+        sheet_url = payload.sheet_url.strip() or None
+        if sheet_url:
+            sheet_id = sheet_id_from_url(sheet_url)
+            if not sheet_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="That does not look like a Google Sheets link "
+                           "(https://docs.google.com/spreadsheets/d/...).",
+                )
+        patch["google_sheet_url"] = sheet_url
+        patch["google_sheet_id"] = sheet_id
+
+    service_account_email = None
+    if payload.service_account_json and payload.service_account_json.strip():
+        try:
+            service_account_email = save_service_account(payload.service_account_json)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        patch["google_service_account_json"] = _relative_to_root(SERVICE_ACCOUNT_PATH)
+
+    update_overlay(patch)
+    settings.sink = payload.mode
+    if changed_url:
+        settings.google_sheet_url = sheet_url
+        settings.google_sheet_id = sheet_id
+    if service_account_email:
+        settings.google_service_account_json = SERVICE_ACCOUNT_PATH
+    return _settings_summary()
+
+
+@app.post("/api/settings/sources")
+def save_source_keys(payload: SourceKeyRequest) -> dict:
+    """Optional API keys for sources (currently Browse AI)."""
+    from jobscout.user_config import update_overlay
+
+    if payload.ba_api_key is not None:
+        key = payload.ba_api_key.strip() or None
+        update_overlay({"sources": {"keyless": {"ba_api_key": key}}})
+        settings.sources.keyless.ba_api_key = key
+    return _settings_summary()
+
+
+@app.post("/api/settings/test/llm")
+def test_llm_settings() -> dict:
+    """Send one tiny chat request through the configured endpoint."""
+    from jobscout.llm import build_transport
+
+    cover_letter = settings.cover_letter
+    try:
+        transport = build_transport(
+            provider=cover_letter.provider,
+            base_url=cover_letter.base_url,
+            api_key=cover_letter.api_key or "",
+            timeout_seconds=min(30.0, cover_letter.timeout_seconds),
+            allow_remote=cover_letter.allow_remote,
+        )
+    except Exception as exc:  # provider misconfiguration surfaces here
+        return {"ok": False, "error": str(exc)}
+    try:
+        payload = {
+            "model": cover_letter.model,
+            "messages": [{"role": "user", "content": "Reply with the single word: ready"}],
+            "max_tokens": 64,
+            "temperature": 0.0,
+        }
+        if "nemotron" in cover_letter.model.lower() or "integrate.api.nvidia.com" in cover_letter.base_url:
+            # Same guard the generator uses: reasoning models otherwise spend
+            # the whole budget on thinking and answer with empty content.
+            payload["chat_template_kwargs"] = {"enable_thinking": False, "thinking": False}
+        body = transport.post(payload)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    message = ((body.get("choices") or [{}])[0].get("message") or {})
+    choice = (
+        message.get("content")
+        or message.get("reasoning")
+        or message.get("reasoning_content")
+        or ""
+    )
+    return {"ok": True, "model": cover_letter.model, "reply": str(choice).strip()[:60]}
+
+
+@app.post("/api/settings/test/sink")
+def test_sink_settings() -> dict:
+    """Open the configured sink and count a page of jobs."""
+    logs: list[str] = []
+    try:
+        sink = build_sink(settings, log=logs.append)
+        jobs = sink.list_jobs(limit=1)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "notes": logs}
+    return {
+        "ok": True,
+        "kind": sink.kind,
+        "jobs_seen": len(jobs),
+        "notes": logs,
     }
 
 

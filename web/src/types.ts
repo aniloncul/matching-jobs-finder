@@ -286,6 +286,35 @@ export interface CvReuseCheck {
   candidates: CvReuseCandidate[];
 }
 
+export interface SettingsSummary {
+  llm: {
+    provider: string;
+    base_url: string;
+    model: string;
+    has_key: boolean;
+    key_hint: string | null;
+    allow_remote: boolean;
+  };
+  sink: {
+    mode: "auto" | "local" | "google" | string;
+    sheet_url: string | null;
+    sheet_id: string | null;
+    has_service_account: boolean;
+    service_account_email: string | null;
+  };
+  sources: { ba_has_key: boolean };
+}
+
+export interface SettingsTestResult {
+  ok: boolean;
+  error?: string;
+  reply?: string;
+  model?: string;
+  kind?: string;
+  jobs_seen?: number;
+  notes?: string[];
+}
+
 
 export interface ExperienceData {
   company: string;
