@@ -57,8 +57,12 @@ class Coordinator(AgentRole):
 
 class Scout(AgentRole):
     def __init__(self, source: str, emit: Emit) -> None:
-        label = "LinkedIn Scout" if source == "linkedin" else "Indeed Scout"
-        super().__init__(source, label, emit)
+        labels = {
+            "linkedin": "LinkedIn Scout",
+            "indeed": "Indeed Scout",
+            "boards": "Boards Scout",
+        }
+        super().__init__(source, labels.get(source, f"{source.title()} Scout"), emit)
 
     def result(self, count: int) -> None:
         self.send("registrar", "result", f"{count} jobs extracted")

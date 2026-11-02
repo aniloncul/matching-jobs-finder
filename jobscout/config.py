@@ -39,9 +39,36 @@ class IndeedConfig(BaseModel):
     max_jobs: int = 25
 
 
+class KeylessConfig(BaseModel):
+    """Shared knobs for the keyless (API/feeds) sources; one agent runs them.
+
+    Empty ``query``/``location`` fall back to the LinkedIn search so a user
+    keeps one primary search term.  ``boards`` entries look like
+    ``greenhouse:acme`` / ``lever:acme`` / ``ashby:acme``.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    query: str = ""
+    location: str = ""
+    max_jobs: int = 25
+    boards: list[str] = Field(default_factory=list)
+    feeds: list[str] = Field(default_factory=list)
+    ba_api_key: str | None = None
+    ba_base_url: str | None = None
+    ba_radius_km: int = 50
+
+
+# Names that share KeylessConfig; kept here so Settings stays the single
+# place that maps a source name to its config block.
+KEYLESS_SOURCE_NAMES = ("boards", "arbeitnow", "hn", "ba", "rss")
+
+
 class SourcesConfig(BaseModel):
     linkedin: LinkedInConfig = Field(default_factory=LinkedInConfig)
     indeed: IndeedConfig = Field(default_factory=IndeedConfig)
+    keyless: KeylessConfig = Field(default_factory=KeylessConfig)
 
 
 class BrowserConfig(BaseModel):
@@ -105,6 +132,8 @@ class CoverLetterConfig(BaseModel):
 
     base_url: str = "http://localhost:11434/v1"
     api_key: str | None = "ollama"
+    provider: str = "auto"  # auto | openai | ollama | anthropic | gemini
+    allow_remote: bool = False  # explicit opt-in for a non-loopback ollama
     model: str = "qwen2.5:7b"
     vision_model: str = "qwen2.5:7b"
     embed_base_url: str = "http://localhost:11434"
@@ -152,11 +181,13 @@ class Settings(BaseModel):
     local_jobs_csv: Path = ROOT / "data" / "jobs.csv"
     local_runs_csv: Path = ROOT / "data" / "runs.csv"
 
-    def source_config(self, name: str) -> LinkedInConfig | IndeedConfig:
+    def source_config(self, name: str) -> LinkedInConfig | IndeedConfig | KeylessConfig:
         if name == "linkedin":
             return self.sources.linkedin
         if name == "indeed":
             return self.sources.indeed
+        if name in KEYLESS_SOURCE_NAMES:
+            return self.sources.keyless
         raise KeyError(name)
 
 
@@ -228,6 +259,24 @@ def load_settings(path: str | Path | None = None) -> Settings:
     raw.setdefault("cv", {})
     cv = raw["cv"]
 
+    if not isinstance(raw.get("sources"), dict):
+        raw["sources"] = {}
+    if not isinstance(raw["sources"].get("keyless"), dict):
+        raw["sources"]["keyless"] = {}
+    keyless = raw["sources"]["keyless"]
+    ba_key = os.getenv("JOBSCOUT_BA_API_KEY", "").strip()
+    if ba_key:
+        keyless["ba_api_key"] = ba_key
+    ba_url = os.getenv("JOBSCOUT_BA_BASE_URL", "").strip()
+    if ba_url:
+        keyless["ba_base_url"] = ba_url
+    boards = os.getenv("JOBSCOUT_BOARDS", "").strip()
+    if boards:
+        keyless["boards"] = [b.strip() for b in boards.split(",") if b.strip()]
+    feeds = os.getenv("JOBSCOUT_RSS_FEEDS", "").strip()
+    if feeds:
+        keyless["feeds"] = [f.strip() for f in feeds.split(",") if f.strip()]
+
     def _flag(name: str, default: bool) -> bool:
         value = os.getenv(name, "").strip()
         if not value:
@@ -285,6 +334,20 @@ def load_settings(path: str | Path | None = None) -> Settings:
         "COVER_LETTER_MODEL",
         cover_letter.get("model", "nvidia/nemotron-3.5-lightning-30b-a3b"),
     )
+    cover_letter["provider"] = str(
+        os.getenv("COVER_LETTER_PROVIDER", cover_letter.get("provider", "auto"))
+    ).strip().lower() or "auto"
+    allow_remote_env = (
+        os.getenv("OLLAMA_ALLOW_REMOTE", "").strip()
+        or os.getenv("COVER_LETTER_ALLOW_REMOTE", "").strip()
+    )
+    if allow_remote_env:
+        cover_letter["allow_remote"] = allow_remote_env.lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
     cover_letter["vision_model"] = os.getenv(
         "COVER_LETTER_VISION_MODEL",
         cover_letter.get("vision_model", "nvidia/nemotron-3.5-super-vl-120b-a12b"),

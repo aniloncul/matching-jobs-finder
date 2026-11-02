@@ -2,6 +2,7 @@ export type AgentId =
   | "coordinator"
   | "linkedin"
   | "indeed"
+  | "boards"
   | "verifier"
   | "analyst"
   | "registrar"

@@ -5,7 +5,7 @@ import json
 import sys
 
 from jobscout.browser import browser_context
-from jobscout.config import load_settings
+from jobscout.config import KEYLESS_SOURCE_NAMES, load_settings
 from jobscout.events import EventBus
 from jobscout.run_manager import RunManager
 
@@ -17,8 +17,19 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser("run", help="Run a job search")
     run_parser.add_argument(
         "--sources",
-        choices=["both", "linkedin", "indeed"],
+        choices=[
+            "both",
+            "keyless",
+            "linkedin",
+            "indeed",
+            "boards",
+            "arbeitnow",
+            "hn",
+            "ba",
+            "rss",
+        ],
         default="both",
+        help="'both' = LinkedIn+Indeed, 'keyless' = all public-API sources",
     )
     run_parser.add_argument("--cached", action="store_true", help="Use cached fixtures")
 
@@ -72,7 +83,11 @@ def main(argv: list[str] | None = None) -> int:
     cv_parser = sub.add_parser("cv", help="Build a tailored CV from the master CV")
     cv_sub = cv_parser.add_subparsers(dest="cv_command")
     cv_build = cv_sub.add_parser("build", help="Render a CV (one saved job or the plain master CV)")
-    cv_build.add_argument("--source", choices=["linkedin", "indeed"], default=None)
+    cv_build.add_argument(
+        "--source",
+        choices=["linkedin", "indeed", *KEYLESS_SOURCE_NAMES],
+        default=None,
+    )
     cv_build.add_argument("--id", dest="job_id", default=None, help="Saved job id")
     cv_build.add_argument("--jd", dest="jd_file", default=None, help="Job description text file")
     cv_build.add_argument("--language", choices=["de", "en"], default=None)
@@ -83,7 +98,11 @@ def main(argv: list[str] | None = None) -> int:
     cv_build.add_argument("--json", action="store_true", help="Machine-readable output")
 
     cv_gaps = cv_sub.add_parser("gaps", help="Requirements the master CV cannot evidence")
-    cv_gaps.add_argument("--source", choices=["linkedin", "indeed"], default=None)
+    cv_gaps.add_argument(
+        "--source",
+        choices=["linkedin", "indeed", *KEYLESS_SOURCE_NAMES],
+        default=None,
+    )
     cv_gaps.add_argument("--id", dest="job_id", default=None)
     cv_gaps.add_argument("--jd", dest="jd_file", default=None)
     cv_gaps.add_argument("--limit", type=int, default=25, help="Max saved jobs to scan")
@@ -146,7 +165,11 @@ def _ats(args: argparse.Namespace) -> int:
 
 
 def _sources(value: str) -> list[str]:
-    return ["linkedin", "indeed"] if value == "both" else [value]
+    if value == "both":
+        return ["linkedin", "indeed"]
+    if value == "keyless":
+        return list(KEYLESS_SOURCE_NAMES)
+    return [value]
 
 
 def _load_jobs(limit: int | None = None):
@@ -284,6 +307,8 @@ def _rank(args: argparse.Namespace) -> int:
         max_tokens=700,
         timeout_seconds=config.timeout_seconds,
         num_ctx=getattr(config, "num_ctx", 4096),
+        provider=getattr(config, "provider", "auto"),
+        allow_remote=getattr(config, "allow_remote", False),
     )
     profile_text = ""
     candidate_location = None

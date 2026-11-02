@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable
 
 from jobscout.agents.roles import Analyst, Coordinator, Registrar, Scout, Verifier
-from jobscout.config import Settings
+from jobscout.config import KEYLESS_SOURCE_NAMES, Settings
 from jobscout.control import RunCancelled, RunControl
 from jobscout.cover_letter.description import fetch_job_description
 from jobscout.cover_letter.description_store import (
@@ -95,10 +95,13 @@ class Orchestrator:
             for name in self.sources:
                 self.control.checkpoint(f"{name} dispatch")
                 cfg = self.settings.source_config(name)
-                scout = Scout(name, self.emit)
+                # The five keyless sources are one UI agent: "boards".
+                agent = "boards" if name in KEYLESS_SOURCE_NAMES else name
+                scout = Scout(agent, self.emit)
                 coordinator.command(
-                    name,
-                    f"{cfg.query} · {cfg.location} · newest first",
+                    agent,
+                    f"{cfg.query} · {cfg.location} · newest first"
+                    + ("" if agent == name else f" · via {name}"),
                 )
                 coordinator.log(f"Dispatching {name} search")
                 scout.status("working", f"Opening {name.title()} search", 0.02)
@@ -394,6 +397,8 @@ class Orchestrator:
             max_tokens=700,
             timeout_seconds=config.timeout_seconds,
             num_ctx=getattr(config, "num_ctx", 4096),
+            provider=getattr(config, "provider", "auto"),
+            allow_remote=getattr(config, "allow_remote", False),
         )
         profile_text = ""
         candidate_location: str | None = None

@@ -2,7 +2,7 @@
 
 Two visible-browser scouts search LinkedIn and Indeed. A coordinator dispatches the work, and a registrar dedupes the reports into Google Sheets or a local CSV.
 
-The UI is a live agent control room built to the monochrome blueprint in [`design.md`](design.md): four agents, animated communication signals, task text, pause/resume, and cancel.
+The UI is a live agent control room built to the monochrome blueprint in [`design.md`](design.md): eight agents (source scouts including the keyless **Boards Scout**, verifier, analyst, registrar, writer), animated communication signals, task text, pause/resume, and cancel.
 
 ## Quick start (Local-first with Docker)
 
@@ -62,6 +62,49 @@ uv run jobscout run --sources both
 ```
 
 Queries can be comma-, semicolon-, newline-, or `OR`-separated; each term is searched separately and the results are deduped. There is no CAPTCHA solving, proxy rotation, stealth mode, or credential storage. The adapters read public/search result HTML, keep volume low (25 jobs per source by default), and stop at cooperative pause/cancel checkpoints.
+
+## Keyless sources (no login, no scraping)
+
+Beside the browser adapters, JobScout runs five keyless fetchers under a single **Boards Scout** agent. They talk to documented public JSON APIs (or your own feeds) with plain HTTP, so there is no CAPTCHA race and the jobs come straight from the publisher:
+
+| Source | Endpoint | Needs |
+| --- | --- | --- |
+| `boards` | Greenhouse / Lever / Ashby employer boards | board tokens in config |
+| `arbeitnow` | arbeitnow.com job-board API | – |
+| `hn` | Hacker News "who is hiring" via Algolia | – |
+| `ba` | Bundesagentur für Arbeit official API | free `JOBSCOUT_BA_API_KEY` |
+| `rss` | any RSS/Atom job feed | feed URLs; honours robots.txt |
+
+```yaml
+# config/search.yaml
+sources:
+  keyless:
+    max_jobs: 25
+    boards:
+      - greenhouse:acme      # token from app.greenhouse.io/<token>
+      - lever:bees           # token from jobs.lever.co/<token>
+      - ashby:startupsaas    # token from jobs.ashbyhq.com/<token>
+    feeds:
+      - https://acme.example/careers.rss
+```
+
+```bash
+uv run jobscout run --sources keyless    # all five
+uv run jobscout run --sources boards     # just one
+```
+
+The UI has a **KEYLESS** button for the same set. Empty `query`/`location` fall back to the LinkedIn search terms. Jobs keep per-fetcher provenance (`Source` = `boards`/`arbeitnow`/`hn`/`ba`/`rss`) plus `canonical_url` and `requisition_id`, so cross-source duplicates collapse in the sheet. Without a BA key the source reports status `blocked` with setup instructions instead of pretending it is empty.
+
+## Model providers
+
+All LLM calls (fit scoring, cover letters, CV tailoring) go through one OpenAI-shaped transport in `jobscout/llm.py`. `COVER_LETTER_PROVIDER=auto` infers the provider from `COVER_LETTER_BASE_URL` (`api.anthropic.com` → Anthropic, `generativelanguage.googleapis.com` → Gemini, loopback → ollama, anything else → OpenAI-compatible), or set it explicitly. Safety rule: a **non-loopback ollama URL is refused** unless you opt in with `OLLAMA_ALLOW_REMOTE=1`, because ollama is unauthenticated and would receive your whole profile. Ollama-only knobs (`num_ctx`) are only sent to local servers.
+
+```dotenv
+COVER_LETTER_PROVIDER=openai
+COVER_LETTER_BASE_URL=https://api.openai.com/v1
+COVER_LETTER_API_KEY=sk-...
+COVER_LETTER_MODEL=gpt-4o-mini
+```
 
 ## Google Sheets
 

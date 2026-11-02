@@ -9,6 +9,9 @@ interface ControlBarProps {
   onCancel: () => void;
 }
 
+// All public-API sources, dispatched together under the "boards" agent.
+const KEYLESS_SOURCES = ["boards", "arbeitnow", "hn", "ba", "rss"];
+
 export function ControlBar({
   state,
   onStart,
@@ -69,6 +72,15 @@ export function ControlBar({
           disabled={locked}
         >
           INDEED
+        </button>
+        <button
+          type="button"
+          className="button"
+          title="Public APIs: ATS boards, Arbeitnow, Hacker News, Bundesagentur, RSS"
+          onClick={() => onStart(KEYLESS_SOURCES, false, query)}
+          disabled={locked}
+        >
+          KEYLESS
         </button>
         {status === "paused" ? (
           <button

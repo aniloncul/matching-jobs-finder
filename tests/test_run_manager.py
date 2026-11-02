@@ -39,6 +39,8 @@ def test_cached_run_completes_and_second_run_dedupes(tmp_path: Path) -> None:
         "coordinator": "done",
         "linkedin": "done",
         "indeed": "done",
+        # Keyless sources were not part of this run, so the agent stays idle.
+        "boards": "idle",
         "verifier": "done",
         # Fit scoring is opt-in (JOBSCOUT_FIT_ENABLED=0) and stays idle.
         "analyst": "waiting",

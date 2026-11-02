@@ -3,14 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import httpx
-
 from jobscout.cover_letter.profile import Profile
+from jobscout.llm import LLMClient, LLMError, build_transport, is_loopback
 from jobscout.models import Job
 
-
-class LLMError(Exception):
-    """Raised when the cloud LLM request fails."""
+__all__ = ["LLMError", "CoverLetterLLM", "SYSTEM_PROMPT", "SOURCE_LABELS"]
 
 
 SYSTEM_PROMPT = """You write classic German-style cover letters (Anschreiben) for job applications adhering strictly to DIN 5008 standards.
@@ -97,6 +94,9 @@ class CoverLetterLLM:
         max_tokens: int = 2500,
         timeout_seconds: float = 120.0,
         num_ctx: int = 4096,
+        *,
+        provider: str = "auto",
+        allow_remote: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -105,6 +105,22 @@ class CoverLetterLLM:
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self.num_ctx = num_ctx
+        self.provider = provider
+        self.allow_remote = allow_remote
+        self._transport: LLMClient | None = None
+
+    @property
+    def transport(self) -> LLMClient:
+        """The provider transport, created on first use."""
+        if self._transport is None:
+            self._transport = build_transport(
+                provider=self.provider,
+                base_url=self.base_url,
+                api_key=self.api_key or "",
+                timeout_seconds=self.timeout_seconds,
+                allow_remote=self.allow_remote,
+            )
+        return self._transport
 
     def generate(
         self,
@@ -170,11 +186,7 @@ class CoverLetterLLM:
             # reasoning_content and returns an empty content field.
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         # `options.num_ctx` is Ollama-specific; OpenAI/NVIDIA NIM rejects it.
-        _is_local = any(
-            kw in self.base_url
-            for kw in ("localhost", "127.0.0.1", "ollama", "::1")
-        )
-        if self.num_ctx > 0 and _is_local:
+        if self.num_ctx > 0 and is_loopback(self.base_url):
             payload["options"] = {"num_ctx": self.num_ctx}
         # Disable chain-of-thought for NVIDIA NIM reasoning models (e.g. Nemotron).
         # Without this, the model spends all its max_tokens on internal thinking
@@ -246,10 +258,7 @@ class CoverLetterLLM:
         }
         if "nemotron" in self.model.lower():
             payload["chat_template_kwargs"] = {"enable_thinking": False}
-        if self.num_ctx > 0 and any(
-            keyword in self.base_url
-            for keyword in ("localhost", "127.0.0.1", "ollama", "::1")
-        ):
+        if self.num_ctx > 0 and is_loopback(self.base_url):
             payload["options"] = {"num_ctx": self.num_ctx}
 
         data = self._post(payload)
@@ -262,46 +271,4 @@ class CoverLetterLLM:
         return _extract_json(content)
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        try:
-            with httpx.Client(timeout=self.timeout_seconds) as client:
-                response = client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                if response.status_code >= 400 and (
-                    "response_format" in payload
-                    or "options" in payload
-                    or "chat_template_kwargs" in payload
-                ):
-                    fallback = dict(payload)
-                    fallback.pop("response_format", None)
-                    fallback.pop("options", None)
-                    fallback.pop("chat_template_kwargs", None)
-                    response = client.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=fallback,
-                    )
-        except httpx.TimeoutException as exc:
-            raise LLMError(
-                "Cover letter API request timed out after "
-                f"{int(self.timeout_seconds)}s. Increase COVER_LETTER_TIMEOUT "
-                "and retry."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise LLMError(f"Cover letter API request failed: {exc}") from exc
-        if response.status_code >= 400:
-            detail = response.text[:600]
-            raise LLMError(f"Cover letter API returned {response.status_code}: {detail}")
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise LLMError("Cover letter API returned invalid JSON") from exc
-        if not isinstance(data, dict):
-            raise LLMError("Cover letter API returned an unexpected payload")
-        return data
+        return self.transport.post(payload)

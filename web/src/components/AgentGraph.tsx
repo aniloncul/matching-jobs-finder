@@ -6,7 +6,7 @@ import type { AgentId, AgentState, Signal } from "../types";
 import { AgentNode } from "./AgentNode";
 
 const BASE_WIDTH = 1000;
-const BASE_HEIGHT = 700;
+const BASE_HEIGHT = 880;
 
 interface AgentGraphProps {
   agents: Record<string, AgentState>;
@@ -80,7 +80,7 @@ export function AgentGraph({
         >
           <svg
             className="graph-svg"
-            viewBox="0 0 1000 700"
+            viewBox={`0 0 ${BASE_WIDTH} ${BASE_HEIGHT}`}
             preserveAspectRatio="xMidYMid meet"
             aria-hidden="true"
           >

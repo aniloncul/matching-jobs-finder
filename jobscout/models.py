@@ -15,12 +15,19 @@ class Source(StrEnum):
     linkedin = "linkedin"
     indeed = "indeed"
     custom = "custom"
+    # Keyless (public API/feeds) sources, all run by the "boards" agent.
+    boards = "boards"  # Greenhouse/Lever/Ashby employer boards
+    arbeitnow = "arbeitnow"
+    hn = "hn"
+    ba = "ba"  # Bundesagentur fuer Arbeit
+    rss = "rss"
 
 
 class AgentId(StrEnum):
     coordinator = "coordinator"
     linkedin = "linkedin"
     indeed = "indeed"
+    boards = "boards"  # aggregates every keyless source
     verifier = "verifier"
     analyst = "analyst"
     registrar = "registrar"

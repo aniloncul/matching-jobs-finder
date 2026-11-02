@@ -113,7 +113,14 @@ class BaseSource(ABC):
             message=message,
             pages_fetched=pages_fetched,
         )
-        self.emit("source.result", agent=self.agent_id, **result.to_dict())
+        # ``agent`` drives the UI card; ``source`` keeps per-fetcher
+        # provenance, so five keyless fetchers do not collapse into one row.
+        self.emit(
+            "source.result",
+            agent=self.agent_id,
+            source=getattr(self, "source_name", str(self.agent_id)),
+            **result.to_dict(),
+        )
         return result
 
     @abstractmethod

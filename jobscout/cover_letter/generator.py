@@ -301,6 +301,8 @@ def generate_cover_letter(
         max_tokens=config.max_tokens,
         timeout_seconds=config.timeout_seconds,
         num_ctx=getattr(config, "num_ctx", 4096),
+        provider=getattr(config, "provider", "auto"),
+        allow_remote=getattr(config, "allow_remote", False),
     )
     try:
         raw = client.generate(profile, job, description, matched_bullets=matched_bullets)

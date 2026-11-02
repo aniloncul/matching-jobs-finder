@@ -317,10 +317,26 @@ Bu, iki repodan alınacak en büyük yetenek. Amaç: **CV'yi LLM'e yazdırmadan,
 - Her biri `BaseSource` + `SourceResult` sözleşmesine uyar; `make_source` registry'si genişler.
 - Stratejik etki: LinkedIn/Indeed scraping bağımlılığı ve ToS riski azalır; ilanlar işveren kaynağından geldiği için `confirmed` olur.
 
+> **Uygulandı** (`analysis/repo-benchmark`): beş adaptör de aynı dosya adlarıyla yazıldı
+> (`keyless.py` ortak taban: httpx + hata taksonomisi 401/403/429→`blocked`, ağ→`error`;
+> `robots.py` yalnız RSS için fail-open robots kapısı — JSON API'leri yayınlandığı şekilde
+> kullanılıyor). UI'da tek yeni ajan **Boards Scout** (`boards`); işler kaynak bazlı `Source`
+> değerlerini (`boards`/`arbeitnow`/`hn`/`ba`/`rss`) ve `requisition_id`/`canonical_url`
+> kimliklerini koruyor. `sources.keyless` config bloğu + `--sources keyless` + UI KEYLESS
+> düğmesi. BA ucu ücretsiz `JOBSCOUT_BA_API_KEY` ister; anahtar yoksa durum `blocked`.
+
 **17. Provider soyutlaması**
 - `LLMClient` protocol: `ollama` (mevcut), `openai-compatible` (`base_url`), `anthropic`, `gemini`.
 - `OLLAMA_ALLOW_REMOTE` benzeri güvenlik: non-loopback base URL için açık izin.
 - Model profili: `fast` (7B), `balanced` (14B), `quality` (32B+). Almanca Anschreiben için 32B+ önerilir; 7B sadece taslak.
+
+> **Uygulandı** (`analysis/repo-benchmark`): `jobscout/llm.py` — `LLMClient` protokolü tek
+> `post(payload)` imzası (OpenAI şekli); `OpenAICompatTransport` (ollama/openai/NIM),
+> `AnthropicTransport`, `GeminiTransport`; `detect_provider` base_url'den `auto` çözüyor.
+> Güvenlik: `provider=ollama` + loopback-dışı adres `OLLAMA_ALLOW_REMOTE` /
+> `COVER_LETTER_ALLOW_REMOTE` olmadan hata verir; `num_ctx` yalnız loopback'e gönderilir.
+> `CoverLetterConfig.provider` + dört çağrı noktasından (CLI rank, orchestrator, generator,
+> CV pipeline) taşınır; `LLMError` artık `jobscout.llm`'de kanonik.
 
 **18. Prompt-as-code testleri**
 - Her prompt template'inde grounding kuralı, dil kuralı ve JSON şeması olduğunu assert et.

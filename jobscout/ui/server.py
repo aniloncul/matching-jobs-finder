@@ -5,12 +5,11 @@ import json
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from jobscout.config import load_settings
 from jobscout.control import RunConflict
@@ -36,6 +35,7 @@ from jobscout.exclusions import delete_job_files
 from jobscout.models import AgentStatus, Job, Source
 from jobscout.run_manager import RunManager
 from jobscout.sinks import build_sink
+from jobscout.sources import KEYLESS_SOURCE_NAMES
 from jobscout.verification import PdfReadError, analyze_pdf, check_pdf
 
 
@@ -54,21 +54,40 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="JobScout", version="0.1.0", lifespan=lifespan)
 
 
+# Sources the UI may dispatch and read letters for; keyless sources are real
+# rows in the sheet now, so they flow through the same endpoints.
+JOB_SOURCES = {"linkedin", "indeed", *KEYLESS_SOURCE_NAMES}
+LETTER_SOURCES = JOB_SOURCES | {"custom"}
+
+
 class RunRequest(BaseModel):
-    sources: list[Literal["linkedin", "indeed"]] = Field(
-        default_factory=lambda: ["linkedin", "indeed"]
-    )
+    sources: list[str] = Field(default_factory=lambda: ["linkedin", "indeed"])
     cached: bool = False
     query: str | None = Field(default=None, max_length=300)
 
+    @field_validator("sources")
+    @classmethod
+    def _known_sources(cls, value: list[str]) -> list[str]:
+        unknown = [item for item in value if item not in JOB_SOURCES]
+        if unknown:
+            raise ValueError(f"Unknown sources: {unknown}")
+        return value
+
 
 class CoverLetterRequest(BaseModel):
-    source: Literal["linkedin", "indeed", "custom"]
+    source: str
     job_id: str = Field(min_length=1, max_length=200)
     force: bool = False
     company: str | None = None
     title: str | None = None
     description: str | None = None
+
+    @field_validator("source")
+    @classmethod
+    def _known_source(cls, value: str) -> str:
+        if value not in LETTER_SOURCES:
+            raise ValueError(f"Unknown source: {value}")
+        return value
 
 
 class JobAppliedRequest(BaseModel):
@@ -414,7 +433,7 @@ def read_job_description(
         try:
             sink = build_sink(settings)
             job = _find_job(sink.list_jobs(limit=500), source, job_id)
-            if job and job.source in {Source.linkedin, Source.indeed}:
+            if job and job.source is not Source.custom:
                 fetched = fetch_job_description(settings, job)
                 if fetched:
                     text = fetched
@@ -645,10 +664,12 @@ def preview_job_page(
 
 @app.post("/api/jobs/{source}/{job_id}/description")
 def save_description(
-    source: Literal["linkedin", "indeed"],
+    source: str,
     job_id: str,
     refresh: bool = False,
 ) -> dict:
+    if source not in JOB_SOURCES:
+        raise HTTPException(status_code=404, detail="Job not found")
     try:
         sink = build_sink(settings)
         job = _find_job(sink.list_jobs(limit=500), source, job_id)
@@ -782,7 +803,7 @@ def create_cover_letter(payload: CoverLetterRequest) -> dict:
 
 @app.get("/api/cover-letters/{source}/{job_id}/{kind}")
 def download_cover_letter(source: str, job_id: str, kind: str) -> FileResponse:
-    if source not in {"linkedin", "indeed", "custom"} or kind not in {"tex", "pdf"}:
+    if source not in LETTER_SOURCES or kind not in {"tex", "pdf"}:
         raise HTTPException(status_code=404, detail="Cover letter not found")
     paths = letter_paths(settings, source, job_id)
     path = paths[kind]

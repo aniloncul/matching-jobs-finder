@@ -19,6 +19,7 @@ from jobscout.cover_letter.llm import CoverLetterLLM, LLMError, _extract_json
 from jobscout.cv.master import MasterCV
 from jobscout.cv.payload import CVRenderPayload, plain_text
 from jobscout.cv.reviewer import OPS, REASONS
+from jobscout.llm import is_loopback
 from jobscout.verification.keywords import Keyword
 
 CV_TAILOR_SYSTEM_PROMPT = """You adapt one applicant's CV for one job advert.
@@ -118,10 +119,7 @@ class CVLLM(CoverLetterLLM):
         }
         if "nemotron" in self.model.lower():
             payload["chat_template_kwargs"] = {"enable_thinking": False}
-        if self.num_ctx > 0 and any(
-            keyword in self.base_url
-            for keyword in ("localhost", "127.0.0.1", "ollama", "::1")
-        ):
+        if self.num_ctx > 0 and is_loopback(self.base_url):
             payload["options"] = {"num_ctx": self.num_ctx}
         data = self._post(payload)
         try:

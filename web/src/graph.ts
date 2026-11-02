@@ -51,6 +51,7 @@ export const NODE_POSITIONS: Record<AgentId, NodePosition> = {
   analyst: { x: 180, y: 545 },
   registrar: { x: 500, y: 545 },
   writer: { x: 820, y: 545 },
+  boards: { x: 500, y: 770 },
 };
 
 function point(x: number, y: number): Point {
@@ -243,6 +244,29 @@ const ROUTES: EdgeRoute[] = [
     labelY: 527,
     dashed: true,
   },
+  {
+    id: "coordinator-boards",
+    from: "coordinator",
+    to: "boards",
+    start: anchor("coordinator", "left", 40),
+    segments: [
+      { c1: point(80, 220), c2: point(40, 600), end: anchor("boards", "left", -30) },
+    ],
+    labelX: 64,
+    labelY: 470,
+    dashed: true,
+  },
+  {
+    id: "boards-registrar",
+    from: "boards",
+    to: "registrar",
+    start: anchor("boards", "top", 0),
+    segments: [
+      { c1: point(500, 664), c2: point(500, 652), end: anchor("registrar", "bottom", 0) },
+    ],
+    labelX: 556,
+    labelY: 656,
+  },
 ];
 
 export const EDGES: EdgeDef[] = ROUTES.map(makeEdge);
@@ -270,6 +294,10 @@ const EDGE_PAIRS: Record<string, { id: string; reverse: boolean }> = {
   "registrar:analyst": { id: "analyst-registrar", reverse: true },
   "registrar:writer": { id: "registrar-writer", reverse: false },
   "writer:registrar": { id: "registrar-writer", reverse: true },
+  "coordinator:boards": { id: "coordinator-boards", reverse: false },
+  "boards:coordinator": { id: "coordinator-boards", reverse: true },
+  "boards:registrar": { id: "boards-registrar", reverse: false },
+  "registrar:boards": { id: "boards-registrar", reverse: true },
 };
 
 export function edgeFor(

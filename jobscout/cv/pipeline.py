@@ -234,6 +234,8 @@ def build_cv(
             max_tokens=settings.cover_letter.max_tokens,
             timeout_seconds=settings.cover_letter.timeout_seconds,
             num_ctx=settings.cover_letter.num_ctx,
+            provider=getattr(settings.cover_letter, "provider", "auto"),
+            allow_remote=getattr(settings.cover_letter, "allow_remote", False),
         )
     llm_used = False
 

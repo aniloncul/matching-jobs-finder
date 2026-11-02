@@ -86,6 +86,20 @@ export function AgentAvatar({ id }: AvatarProps) {
     );
   }
 
+  if (id === "boards") {
+    return (
+      <Frame>
+        <rect x="8" y="10" width="48" height="38" />
+        <path d="M8 20H56" />
+        <rect x="14" y="26" width="12" height="8" fill="currentColor" />
+        <rect x="30" y="26" width="20" height="4" />
+        <rect x="30" y="34" width="20" height="4" />
+        <rect x="14" y="38" width="12" height="4" />
+        <path d="M20 48V54M44 48V54M14 58H50" />
+      </Frame>
+    );
+  }
+
   const letter = id === "linkedin" ? "L" : "I";
   return (
     <Frame>

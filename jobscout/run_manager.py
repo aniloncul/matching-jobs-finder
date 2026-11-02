@@ -17,6 +17,7 @@ AGENT_DEFS = (
     ("coordinator", "Coordinator", "Orchestrator", "Standing by"),
     ("linkedin", "LinkedIn Scout", "Source agent", "Waiting for dispatch"),
     ("indeed", "Indeed Scout", "Source agent", "Waiting for dispatch"),
+    ("boards", "Boards Scout", "Keyless source agent", "Waiting for dispatch"),
     ("verifier", "Verifier", "Liveness agent", "Waiting for results"),
     ("analyst", "Analyst", "Fit scorer", "Waiting for verification"),
     ("registrar", "Registrar", "Sheet writer", "Waiting for results"),
@@ -364,8 +365,9 @@ class RunManager:
 
         if event_type == "source.result":
             agent_id = event.get("agent")
-            if agent_id:
-                state.source_results[str(agent_id)] = {
+            source_name = event.get("source") or agent_id
+            if source_name:
+                state.source_results[str(source_name)] = {
                     "status": event.get("status", "ok"),
                     "message": event.get("message"),
                     "pages_fetched": int(event.get("pages_fetched", 0) or 0),
