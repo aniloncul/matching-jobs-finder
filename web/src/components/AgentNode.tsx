@@ -26,8 +26,8 @@ export function AgentNode({ agent, onOpen }: AgentNodeProps) {
       data-agent={agent.id}
       data-status={agent.status}
       style={{
-        left: `${position.x / 10}%`,
-        top: `${position.y / 7}%`,
+        left: `${position.x}px`,
+        top: `${position.y}px`,
       }}
       aria-label={`${agent.name}, ${agent.status}. Open agent log`}
       aria-haspopup="dialog"
