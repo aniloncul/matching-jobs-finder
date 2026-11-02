@@ -343,10 +343,27 @@ Bu, iki repodan alınacak en büyük yetenek. Amaç: **CV'yi LLM'e yazdırmadan,
 - Her LLM'e giden posting yolunun `posting_guard`'dan geçtiğini assert et.
 - ATS/fact gate için fixture'lar: uydurma metrik, en-dash tarih, gizli talimat, CSS-ayrık skill tag'leri.
 
+> **Uygulandı** (`analysis/repo-benchmark`): `tests/test_prompts_as_code.py` — dört system
+> prompt'unun (Anschreiben, CV tailor, CV reviewer, fit) grounding/dil/JSON-şeması
+> sözleşmeleri sabitlendi; letter ve CV yollarında `guard_text` çağrıları spy'la doğrulandı.
+> Benchmark'ın adversarial fixture'ları teste dönüştü: uydurma `%` metrik → fact gate
+> `block`, en-dash tarih aralığı → `check_ascii_dates`, zero-width talimat taşıyıcısı →
+> guard temizler+flag'ler, CSS-ayrık "P y t h o n" → guard artık kelimeleri birleştiriyor
+> (`_join_spaced_words`). Bu arada gerçek bir bug yakalandı: `CV_REVIEW_SYSTEM_PROMPT`
+> içindeki kaçışsız `{"edits"}` süslü parantezleri `.format()`'ı patlatıyordu; kaçırıldı.
+
 **19. Artefakt + index depolama**
 - İlan/letter/CV'yi `data/artifacts/{source}/{job_id}/` altında JSON/MD olarak sakla; JD'yi verbatim arşivle.
 - SQLite sadece index/FTS için; artefaktlardan yeniden inşa edilebilir.
 - Sheet/CSV export korunur (mevcut kullanıcı akışı bozulmaz).
+
+> **Uygulandı** (`analysis/repo-benchmark`): `jobscout/artifacts.py` — `ArtifactStore`
+> her yeni ilanı `job.json` + verbatim `jd.md` olarak arşivler (orchestrator write ve
+> description-fetch hook'ları), letter/CV üretimleri `letter.json` + `documents.json`
+> linkleriyle bağlanır (pipeline'lar asla doğrudan doküman yazmaz). `index.sqlite`
+> FTS5 (+ LIKE fallback) sadece indistir; `jobscout index rebuild` klasörlerden yeniden
+> kurar, `jobscout index search` arar. `JOBSCOUT_ARTIFACTS=0` ile kapanır;
+> `data/artifacts/` gitignore'da. Sheet/CSV akışı değişmedi.
 
 ---
 

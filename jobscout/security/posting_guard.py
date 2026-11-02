@@ -45,6 +45,18 @@ _WHITESPACE_RE = re.compile(r"[ \t\f\v]+")
 _MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
 _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 
+# Letter-spaced text from CSS (`letter-spacing` on skill tags) survives text
+# extraction as "P y t h o n".  Four or more single letters in a row are not
+# real words; they are one word with the spacing burned in, and the joined
+# form is what every keyword matcher downstream expects.
+_SPACED_WORD_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:[A-Za-z][ \u00a0]){3,}[A-Za-z](?![A-Za-z0-9])"
+)
+
+
+def _join_spaced_words(text: str) -> str:
+    return _SPACED_WORD_RE.sub(lambda m: "".join(m.group(0).split()), text)
+
 _INSTRUCTION_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE | re.MULTILINE)
     for pattern in (
@@ -131,6 +143,7 @@ def _mixed_script_words(text: str) -> list[str]:
 
 def _normalise_block(text: str) -> str:
     text = _WHITESPACE_RE.sub(" ", text)
+    text = _join_spaced_words(text)
     text = _MULTI_NEWLINE_RE.sub("\n\n", text)
     return text.strip()
 

@@ -33,6 +33,7 @@ from jobscout.cover_letter.requirements import extract_requirements
 from jobscout.cover_letter.verifier import verify_letter
 from jobscout.models import Job
 from jobscout.security import guard_text
+from jobscout.artifacts import store_for
 from jobscout.verification import analyze_pdf
 
 
@@ -440,6 +441,12 @@ def generate_cover_letter(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+    artifacts = store_for(settings)
+    artifacts.save_letter(job.source.value, job.job_id, metadata)
+    artifacts.link_document(job.source.value, job.job_id, "letter-tex", paths["tex"])
+    if pdf_path is not None:
+        artifacts.link_document(job.source.value, job.job_id, "letter-pdf", pdf_path)
 
     progress("Cover letter ready", 1.0)
     return CoverLetterResult(

@@ -21,3 +21,4 @@ data/*.sqlite3
 .ruff_cache/
 probe_key.py
 reference-repos/
+data/artifacts/

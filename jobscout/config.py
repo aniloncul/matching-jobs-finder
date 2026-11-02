@@ -65,6 +65,14 @@ class KeylessConfig(BaseModel):
 KEYLESS_SOURCE_NAMES = ("boards", "arbeitnow", "hn", "ba", "rss")
 
 
+class ArtifactsConfig(BaseModel):
+    """Verbatim job/letter/CV archive under data/artifacts (+ SQLite index)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+
+
 class SourcesConfig(BaseModel):
     linkedin: LinkedInConfig = Field(default_factory=LinkedInConfig)
     indeed: IndeedConfig = Field(default_factory=IndeedConfig)
@@ -173,6 +181,7 @@ class Settings(BaseModel):
     liveness: LivenessConfig = Field(default_factory=LivenessConfig)
     fit: FitConfig = Field(default_factory=FitConfig)
     cv: CVConfig = Field(default_factory=CVConfig)
+    artifacts: ArtifactsConfig = Field(default_factory=ArtifactsConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
     root: Path = ROOT
     google_sheet_id: str | None = None
@@ -316,6 +325,12 @@ def load_settings(path: str | Path | None = None) -> Settings:
         if value:
             path = Path(value)
             cv[key] = path if path.is_absolute() else ROOT / path
+
+    if not isinstance(raw.get("artifacts"), dict):
+        raw["artifacts"] = {}
+    raw["artifacts"]["enabled"] = _flag(
+        "JOBSCOUT_ARTIFACTS", bool(raw["artifacts"].get("enabled", True))
+    )
 
     raw.setdefault("cover_letter", {})
     cover_letter = raw["cover_letter"]

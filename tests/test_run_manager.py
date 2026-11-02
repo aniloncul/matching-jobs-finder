@@ -13,6 +13,8 @@ def make_manager(tmp_path: Path) -> RunManager:
         sink="local",
         local_jobs_csv=tmp_path / "jobs.csv",
         local_runs_csv=tmp_path / "runs.csv",
+        # Keep the repo's data/ clean: this helper's root is intentionally real.
+        artifacts={"enabled": False},
     )
     return RunManager(settings, EventBus())
 

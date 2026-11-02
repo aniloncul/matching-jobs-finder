@@ -44,7 +44,7 @@ Return one JSON object with exactly these keys:
 CV_REVIEW_SYSTEM_PROMPT = """You are a fresh-context reviewer of one rendered CV. You did not write it and you cannot see the model that produced it.
 Judge it against the FACT LIST and the job advert.
 
-Return one JSON object: {"edits": [ ... ]} with at most 8 edits.
+Return one JSON object: {{"edits": [ ... ]}} with at most 8 edits.
 Each edit is an object with exactly these keys:
 - op: one of {ops}
 - reason: one of {reasons}
@@ -57,7 +57,7 @@ Rules:
 - If you think something is not supported by the fact list, use reason "grounding" and do NOT propose a reworded version: the system never applies grounding edits automatically.
 - If you disagree with the story the candidate is telling, use reason "reframing": that edit is shown to the human, not applied.
 - "value" must never contain a tool, employer, date or number that is not in the fact list.
-- Prefer few precise edits over many cosmetic ones. Return {"edits": []} if the CV is fine.
+- Prefer few precise edits over many cosmetic ones. Return {{"edits": []}} if the CV is fine.
 """
 
 

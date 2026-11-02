@@ -270,6 +270,20 @@ first visit follows `prefers-color-scheme`; the choice is remembered for later v
 brand colors never change — the dark theme is a pure inversion of the canvas and the ink,
 as described in `design.md`.
 
+## Artifact archive and search
+
+Every new job, its job description and the letters/CVs generated for it are archived verbatim under `data/artifacts/{source}/{job_id}/` (`job.json`, `jd.md`, `letter.json`, `documents.json` links to tex/pdf). The sheet/CSV flow is untouched; the archive is an additive, inspectable record.
+
+`data/artifacts/index.sqlite` is only an index — delete it and rebuild:
+
+```bash
+uv run jobscout index rebuild
+uv run jobscout index search "kafka" --source hn
+uv run jobscout index search "Berlin" --json
+```
+
+Set `JOBSCOUT_ARTIFACTS=0` to disable archiving entirely.
+
 ## How it works
 
 - `jobscout/orchestrator.py` runs the deterministic coordinator/scout/registrar workflow.
@@ -277,6 +291,8 @@ as described in `design.md`.
 - `jobscout/parsers/` normalizes LinkedIn/Indeed cards, links, and relative dates.
 - `jobscout/sinks/` writes to local CSV or Google Sheets.
 - `jobscout/run_manager.py` owns run state, pause/cancel control, and the event history.
+- `jobscout/artifacts.py` writes the verbatim artifact archive and the rebuildable SQLite/FTS index.
+- `jobscout/llm.py` holds the provider-agnostic transport (ollama, OpenAI-compatible, Anthropic, Gemini).
 - `jobscout/ui/server.py` exposes the REST/SSE API and serves `web/dist`.
 - `web/src/` contains the React control room and the SVG communication graph.
 

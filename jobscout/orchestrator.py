@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 
 from jobscout.agents.roles import Analyst, Coordinator, Registrar, Scout, Verifier
+from jobscout.artifacts import store_for
 from jobscout.config import KEYLESS_SOURCE_NAMES, Settings
 from jobscout.control import RunCancelled, RunControl
 from jobscout.cover_letter.description import fetch_job_description
@@ -200,6 +201,9 @@ class Orchestrator:
                 )
                 wrote = True
                 registrar.log(f"Successfully wrote {new_count} new jobs")
+                archived = store_for(self.settings).archive_jobs(unique)
+                if archived:
+                    registrar.log(f"Archived {archived} job artifacts")
             else:
                 new_count = 0
                 registrar.log("No new jobs to write")
@@ -474,6 +478,9 @@ class Orchestrator:
                 text = fetch_job_description(self.settings, job)
                 save_job_description(self.settings, job, text)
                 sink.save_description(job.source.value, job.job_id, text)
+                store_for(self.settings).archive_description(
+                    job.source.value, job.job_id, text
+                )
                 saved += 1
                 if hasattr(registrar, "log"):
                     registrar.log(f"Saved description for {job.company} ({job.job_id})")

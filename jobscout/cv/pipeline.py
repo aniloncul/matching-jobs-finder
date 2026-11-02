@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from jobscout.config import Settings
+from jobscout.artifacts import store_for
 from jobscout.cover_letter.description_store import load_saved_description
 from jobscout.cover_letter.generator import letter_paths
 from jobscout.cover_letter.latex import detect_language
@@ -337,6 +338,12 @@ def build_cv(
         "pdf_error": result.pdf_error,
     }
     paths["json"].write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    if job is not None:
+        artifacts = store_for(settings)
+        artifacts.link_document(job.source.value, job.job_id, "cv-tex", paths["tex"])
+        artifacts.link_document(job.source.value, job.job_id, "cv-json", paths["json"])
+        if result.pdf_path:
+            artifacts.link_document(job.source.value, job.job_id, "cv-pdf", result.pdf_path)
     progress("CV ready", 1.0)
     return result
 

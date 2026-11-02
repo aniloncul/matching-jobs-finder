@@ -108,6 +108,17 @@ def main(argv: list[str] | None = None) -> int:
     cv_gaps.add_argument("--limit", type=int, default=25, help="Max saved jobs to scan")
     cv_gaps.add_argument("--json", action="store_true", help="Machine-readable output")
 
+    index_parser = sub.add_parser(
+        "index", help="Searchable artifact archive (data/artifacts)"
+    )
+    index_sub = index_parser.add_subparsers(dest="index_command")
+    index_sub.add_parser("rebuild", help="Rebuild the SQLite index from artifacts")
+    index_search = index_sub.add_parser("search", help="Full-text search archived jobs")
+    index_search.add_argument("query")
+    index_search.add_argument("--source", default=None)
+    index_search.add_argument("--limit", type=int, default=25)
+    index_search.add_argument("--json", action="store_true")
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         return _serve(args.host, args.port)
@@ -125,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         return _rank(args)
     if args.command == "cv":
         return _cv(args)
+    if args.command == "index":
+        return _index(args)
     parser.print_help()
     return 0
 
@@ -170,6 +183,39 @@ def _sources(value: str) -> list[str]:
     if value == "keyless":
         return list(KEYLESS_SOURCE_NAMES)
     return [value]
+
+
+def _index(args: argparse.Namespace) -> int:
+    from jobscout.artifacts import store_for
+
+    settings = load_settings()
+    store = store_for(settings)
+    command = getattr(args, "index_command", None)
+    if command == "rebuild":
+        count = store.rebuild_index()
+        print(f"Indexed {count} archived job(s) in {store.db_path}")
+        return 0
+    if command == "search":
+        hits = store.search(args.query, source=args.source, limit=args.limit)
+        if args.json:
+            print(json.dumps(hits, ensure_ascii=False, indent=2))
+            return 0
+        if not hits:
+            print("No archived jobs matched.")
+            return 0
+        for hit in hits:
+            score = (
+                ""
+                if hit.get("rank_score") is None
+                else f" fit={hit['rank_score']}"
+            )
+            print(
+                f"- [{hit['source']}] {hit['company']} - {hit['title']}{score}"
+                f" · {hit['link']}"
+            )
+        return 0
+    print("usage: jobscout index rebuild | jobscout index search <query>", file=sys.stderr)
+    return 2
 
 
 def _load_jobs(limit: int | None = None):
