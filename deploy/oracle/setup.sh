@@ -15,7 +15,7 @@ if [ -z "$PASSWORD" ]; then
 fi
 
 REPO_URL="${REPO_URL:-https://github.com/aniloncul/matching-jobs-finder.git}"
-BRANCH="${BRANCH:-analysis/repo-benchmark}"
+BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-$HOME/jobscout}"
 
 SUDO=""

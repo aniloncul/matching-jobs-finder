@@ -64,7 +64,7 @@ Copy the VM's public IP from the console, then from this machine:
 
 ```bash
 ssh -i ~/.ssh/oracle_jobscout ubuntu@<PUBLIC_IP> \
-  'curl -fsSL https://raw.githubusercontent.com/aniloncul/matching-jobs-finder/analysis/repo-benchmark/deploy/oracle/setup.sh | bash -s -- "<JOBSCOUT_PASSWORD>"'
+  'curl -fsSL https://raw.githubusercontent.com/aniloncul/matching-jobs-finder/main/deploy/oracle/setup.sh | bash -s -- "<JOBSCOUT_PASSWORD>"'
 ```
 
 The script installs Docker, clones the branch, builds the image (10-20 min on

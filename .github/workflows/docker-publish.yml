@@ -3,7 +3,6 @@ name: docker
 on:
   push:
     branches:
-      - analysis/repo-benchmark
       - main
     tags:
       - "v*"
@@ -45,7 +44,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/analysis/repo-benchmark' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - uses: docker/build-push-action@v6
         with:
