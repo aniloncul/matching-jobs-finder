@@ -16,6 +16,13 @@ docker run -d --name jobscout \
   ghcr.io/aniloncul/matching-jobs-finder:latest
 ```
 
+Or let the installer do it (pulls, (re)creates, waits for health, prints the
+URL):
+
+```bash
+curl -fsSL https://jobs.metavocab.com/install.sh | bash
+```
+
 Open <http://localhost:8080> and configure the model and sheet once in
 **SETUP**. Windows/PowerShell: same command on one line, without the `\`.
 The image is rebuilt from this repo by

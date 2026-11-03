@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # One-command JobScout install (Docker required).
 #
-#   curl -fsSL https://raw.githubusercontent.com/aniloncul/matching-jobs-finder/analysis/repo-benchmark/deploy/docker/install.sh | bash
+#   curl -fsSL https://jobs.metavocab.com/install.sh | bash
+#
+# (or from the repository: deploy/docker/install.sh)
 #
 # Environment overrides:
 #   PORT=8080            host port (bound to 127.0.0.1)
