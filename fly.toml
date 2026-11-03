@@ -10,7 +10,7 @@
 # API key + service account, browser profiles) lives on the mounted volume
 # and survives restarts and redeploys.
 
-app = "jobscout"  # change to a globally unique name
+app = "jobscout-anil"  # change to a globally unique name
 primary_region = "fra"
 
 [build]
@@ -36,7 +36,6 @@ primary_region = "fra"
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
-  processes = ["app"]
 
   [[http_service.checks]]
     interval = "30s"
