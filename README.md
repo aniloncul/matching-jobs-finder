@@ -109,9 +109,10 @@ Everything the Setup view writes lands in `config/settings.local.json`, which lo
 
 > **Cost note:** Fly.io is a paid host - there is no free always-on tier. This
 > section is for people who want a 24/7 instance and are fine paying for it.
-> For zero cost, run locally (`jobscout serve`) or on an always-free VM - see
-> [`deploy/oracle/README.md`](deploy/oracle/README.md) for a step-by-step
-> Oracle Cloud Always Free guide (4 OCPU / 24 GB ARM VM, volume, basic auth).
+> For zero cost, run locally (`jobscout serve`), on a VPS you already pay for
+> (see [`deploy/vps/README.md`](deploy/vps/README.md): one container behind an
+> existing Caddy, ~65 MB idle), or on an always-free VM
+> ([`deploy/oracle/README.md`](deploy/oracle/README.md), 4 OCPU / 24 GB ARM).
 
 The app is long-lived by design - background run threads, an open SSE stream, a writable `data/` directory, LaTeX and Chromium inside the image. That rules out serverless hosts (Vercel and friends); what fits instead is one small persistent container per user. [Fly.io](https://fly.io) works well and the repo ships the config for it:
 
