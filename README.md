@@ -31,8 +31,9 @@ Prefer Compose? [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) is
 the same setup; [`deploy/docker/install.sh`](deploy/docker/install.sh) wraps it
 in a one-liner and prints the URL.
 
-To expose the app to other devices, set `JOBSCOUT_PASSWORD`, publish the port,
-and put HTTPS in front — see [`deploy/vps/README.md`](deploy/vps/README.md).
+JobScout is distributed as a Docker container and is intended to run on your
+own computer. Keep the published port bound to `127.0.0.1` so the app stays
+private to that machine.
 
 ## Quick start (Local-first with Docker)
 
@@ -134,31 +135,6 @@ The app is local-first: nothing leaves your machine. A user who never touches a 
 - **Optional keys** - Browse AI, for one more keyless source.
 
 Everything the Setup view writes lands in `config/settings.local.json`, which loads **after** `config/search.yaml` and **before** the environment - `.env` and CI overrides keep working exactly as before. In containers the file locations move with `JOBSCOUT_USER_SETTINGS` and `JOBSCOUT_GOOGLE_SA_FILE` so they can live on a persistent volume.
-
-## Deploy (Fly.io)
-
-> **Cost note:** Fly.io is a paid host - there is no free always-on tier. This
-> section is for people who want a 24/7 instance and are fine paying for it.
-> For zero cost, run locally (`jobscout serve`), on a VPS you already pay for
-> (see [`deploy/vps/README.md`](deploy/vps/README.md): one container behind an
-> existing Caddy, ~65 MB idle), or on an always-free VM
-> ([`deploy/oracle/README.md`](deploy/oracle/README.md), 4 OCPU / 24 GB ARM).
-
-The app is long-lived by design - background run threads, an open SSE stream, a writable `data/` directory, LaTeX and Chromium inside the image. That rules out serverless hosts (Vercel and friends); what fits instead is one small persistent container per user. [Fly.io](https://fly.io) works well and the repo ships the config for it:
-
-```bash
-fly launch --no-deploy            # uses the Dockerfile + fly.toml in this repo
-fly volumes create jobscout_data --size 1
-fly secrets set JOBSCOUT_PASSWORD="pick-a-real-password"
-fly deploy
-fly open                          # then open /#setup and configure your keys
-```
-
-- `fly.toml` mounts the volume at `/app/data` and points the Setup-view secrets (`JOBSCOUT_USER_SETTINGS`, `JOBSCOUT_GOOGLE_SA_FILE`) and browser profiles there, so jobs, CVs, caches and keys survive redeploys.
-- `JOBSCOUT_PASSWORD` turns on HTTP basic auth for every route (health check excepted) - set it, or anyone who finds the URL can start scans with your keys. Username defaults to `jobscout`; override with `JOBSCOUT_USERNAME`.
-- `auto_stop_machines = false` keeps the machine up so scans and the live event stream are never cut mid-run; comment it out if you want it to sleep when idle.
-
-The same image works on Railway/Render/a VPS: it listens on `0.0.0.0:8000`, and everything stateful lives under `/app/data` - mount a disk there.
 
 ## Model providers
 
