@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,36 @@ def test_paths_follow_env_for_container_volumes(
         monkeypatch.delenv("JOBSCOUT_USER_SETTINGS", raising=False)
         monkeypatch.delenv("JOBSCOUT_GOOGLE_SA_FILE", raising=False)
         importlib.reload(user_config)  # restore module-level defaults for other tests
+
+
+# --- published distribution surface ------------------------------------- #
+# The landing page serves copies of the installer and the Compose file so the
+# documented one-liner is a short, stable URL. Those copies must not drift.
+
+SITE = Path(__file__).resolve().parents[1] / "site"
+DEPLOY = Path(__file__).resolve().parents[1] / "deploy" / "docker"
+
+
+def _strip_header(text: str, note_lines: int) -> str:
+    """Drop the mirrored-note header the site copies add."""
+    return "".join(text.splitlines(keepends=True)[note_lines:])
+
+
+def test_site_installer_matches_the_repo_copy() -> None:
+    original = (DEPLOY / "install.sh").read_text()
+    mirror = (SITE / "install.sh").read_text()
+    assert _strip_header(mirror, 4) == _strip_header(original, 2)
+
+
+def test_site_compose_matches_the_repo_copy() -> None:
+    original = (DEPLOY / "compose.yaml").read_text()
+    mirror = (SITE / "compose.yaml").read_text()
+    assert _strip_header(mirror, 2) == original
+
+
+def test_landing_page_links_resolve_to_files() -> None:
+    """Relative hrefs and asset srcs on the landing page must exist locally."""
+    html = (SITE / "index.html").read_text()
+    for ref in re.findall(r'(?:href|src)="(?!https?:|mailto:|#)([^"]+)"', html):
+        assert (SITE / ref).exists(), f"landing page references missing {ref}"
+    assert "ghcr.io/" in html, "the install command must name the published image"
