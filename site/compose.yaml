@@ -1,0 +1,31 @@
+# Mirror of deploy/docker/compose.yaml, served by the landing page so
+# "curl this file and run it" works from jobs.metavocab.com.
+services:
+  jobscout:
+    image: ghcr.io/aniloncul/matching-jobs-finder:latest
+    container_name: jobscout
+    ports:
+      # Loopback only: the app is yours, not the network's.
+      #   JOBSCOUT_PORT=9000 docker compose up     -> different host port
+      #   JOBSCOUT_BIND=0.0.0.0 ...                -> reachable by others,
+      # which only makes sense together with JOBSCOUT_PASSWORD below.
+      - "${JOBSCOUT_BIND:-127.0.0.1}:${JOBSCOUT_PORT:-8080}:8000"
+    volumes:
+      - jobscout_data:/app/data
+    environment:
+      - JOBSCOUT_HOST=0.0.0.0
+      - JOBSCOUT_PORT=8000
+      # Uncomment to require a password when the app is reachable by others:
+      # - JOBSCOUT_PASSWORD=change-me
+    restart: unless-stopped
+    # Chromium peaks around 500 MB, a busy run with PDF rendering under 1 GB.
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  jobscout_data:

@@ -335,9 +335,16 @@
         </div>
         <p class="install-note">
           Docker Desktop or Engine required. The image is multi-arch (amd64 + arm64),
-          so Apple Silicon and x86 both run it natively. Prefer Compose? Grab
-          <a href="https://github.com/aniloncul/matching-jobs-finder/blob/main/deploy/docker/compose.yaml">compose.yaml</a>.
+          so Apple Silicon and x86 both run it natively. Prefer Compose?
+          <a href="compose.yaml" download>compose.yaml</a> → <code>docker compose up -d</code>.
         </p>
+        <p class="install-note">
+          Windows / PowerShell — same thing on one line:
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span class="lights"><i></i><i></i><i></i></span><span>powershell</span><span></span></div>
+<pre class="cmd">docker run -d --name jobscout -p 127.0.0.1:8080:8000 -v jobscout_data:/app/data ghcr.io/aniloncul/matching-jobs-finder:latest</pre>
+        </div>
       </div>
 
       <aside class="facts">

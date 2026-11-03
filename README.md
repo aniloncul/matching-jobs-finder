@@ -17,7 +17,8 @@ docker run -d --name jobscout \
 ```
 
 Open <http://localhost:8080> and configure the model and sheet once in
-**SETUP**. The image is rebuilt from this repo by
+**SETUP**. Windows/PowerShell: same command on one line, without the `\`.
+The image is rebuilt from this repo by
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml).
 Prefer Compose? [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) is
 the same setup; [`deploy/docker/install.sh`](deploy/docker/install.sh) wraps it
