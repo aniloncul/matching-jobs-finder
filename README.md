@@ -4,6 +4,28 @@ Two visible-browser scouts search LinkedIn and Indeed. A coordinator dispatches 
 
 The UI is a live agent control room built to the monochrome blueprint in [`design.md`](design.md): eight agents (source scouts including the keyless **Boards Scout**, verifier, analyst, registrar, writer), animated communication signals, task text, pause/resume, and cancel.
 
+## Run the prebuilt image
+
+No clone, no build. One multi-arch container (`amd64` + `arm64`), data in a
+Docker volume, port bound to loopback:
+
+```bash
+docker run -d --name jobscout \
+  -p 127.0.0.1:8080:8000 \
+  -v jobscout_data:/app/data \
+  ghcr.io/aniloncul/matching-jobs-finder:latest
+```
+
+Open <http://localhost:8080> and configure the model and sheet once in
+**SETUP**. The image is rebuilt from this repo by
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml).
+Prefer Compose? [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) is
+the same setup; [`deploy/docker/install.sh`](deploy/docker/install.sh) wraps it
+in a one-liner and prints the URL.
+
+To expose the app to other devices, set `JOBSCOUT_PASSWORD`, publish the port,
+and put HTTPS in front — see [`deploy/vps/README.md`](deploy/vps/README.md).
+
 ## Quick start (Local-first with Docker)
 
 The easiest way to run JobScout with zero cloud dependencies and free local AI inference:

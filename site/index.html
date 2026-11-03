@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JobScout — eight agents, one job hunt</title>
+<meta name="description" content="Self-hosted job search: eight agents search LinkedIn, Indeed and keyless job APIs, verify and score every posting, and write the results into your own Google Sheet. No account. Your keys stay on your machine." />
+<meta property="og:title" content="JobScout — eight agents, one job hunt" />
+<meta property="og:description" content="Self-hosted job search. Your keys, your sheet, your machine." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<style>
+  :root {
+    --bg: #08090a;
+    --panel: #0d0f11;
+    --panel-2: #111417;
+    --line: #22272d;
+    --line-soft: #191d21;
+    --ink: #e9ecef;
+    --muted: #8b949e;
+    --dim: #5c646d;
+    --signal: #b8f24a;
+    --signal-dim: #6f9a20;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --max: 1180px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+    background-size: 64px 64px;
+    background-position: center top;
+  }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: var(--signal); }
+  code, pre, .mono { font-family: var(--mono); }
+  .wrap { width: min(var(--max), calc(100% - 48px)); margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .eyebrow .dot { color: var(--signal); }
+
+  /* header */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: .18em; font-size: 13px; }
+  .mark {
+    width: 30px; height: 30px; border: 1px solid var(--line);
+    display: grid; place-items: center; font-size: 11px; letter-spacing: 0;
+    color: var(--signal); background: var(--panel);
+  }
+  .brand small { color: var(--dim); font-size: 9px; letter-spacing: .2em; display: block; margin-top: -2px; }
+  nav { display: flex; align-items: center; gap: 26px; font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  nav a.ghost { border: 1px solid var(--line); padding: 8px 14px; color: var(--ink); }
+  nav a.ghost:hover { border-color: var(--signal); }
+
+  /* hero */
+  .hero { display: grid; grid-template-columns: 1.02fr .98fr; gap: 56px; padding: 84px 0 40px; align-items: center; }
+  h1 {
+    font-family: var(--mono); font-weight: 500;
+    font-size: clamp(38px, 5.2vw, 68px);
+    line-height: 1.02; letter-spacing: -.03em; word-spacing: -.2em; margin: 18px 0 22px;
+  }
+  h1 em { font-style: normal; color: var(--signal); }
+  .lede { color: var(--muted); font-size: 17px; max-width: 52ch; margin: 0 0 26px; }
+  .lede strong { color: var(--ink); font-weight: 500; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 13px 18px; border: 1px solid var(--line); color: var(--ink);
+    background: var(--panel); cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+  }
+  .btn:hover { border-color: var(--signal); color: var(--signal); }
+  .btn.primary { background: var(--signal); color: #0a0c06; border-color: var(--signal); font-weight: 600; }
+  .btn.primary:hover { background: #c9ff63; color: #0a0c06; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 24px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .meta span::before { content: "·"; margin-right: 18px; color: var(--line); }
+  .meta span:first-child::before { content: none; margin: 0; }
+
+  /* graph */
+  .graph-frame { border: 1px solid var(--line); background: linear-gradient(180deg, #0c0e10, #08090a); padding: 18px 14px 10px; position: relative; }
+  .graph-frame::before {
+    content: "AGENT MESH / LIVE"; position: absolute; top: -1px; left: 14px;
+    transform: translateY(-50%); background: var(--bg); padding: 0 8px;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .16em; color: var(--dim);
+  }
+  .graph-frame svg { width: 100%; height: auto; display: block; }
+  .node rect { fill: #0e1114; stroke: #2b3238; }
+  .node text { fill: #d7dce1; font-family: var(--mono); font-size: 10px; }
+  .node .role { fill: #6f7883; font-size: 7.5px; letter-spacing: .08em; }
+  .node .state { fill: #59616b; font-size: 7px; letter-spacing: .12em; }
+  .node .dot { fill: var(--signal); }
+  .edge { stroke: #343d45; stroke-width: 1; fill: none; }
+  .edge.flow { stroke: #8a9a5e; stroke-dasharray: 3 7; animation: dash 9s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -200; } }
+  @media (prefers-reduced-motion: reduce) { .edge.flow { animation: none; } }
+
+  /* install */
+  .install { padding: 60px 0 20px; }
+  .install-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: 28px; align-items: start; }
+  .terminal { border: 1px solid var(--line); background: #0a0c0e; }
+  .terminal-bar { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 10px; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
+  .terminal-bar .lights { display: flex; gap: 6px; }
+  .terminal-bar .lights i { width: 7px; height: 7px; border-radius: 50%; background: #262c33; display: block; }
+  pre.cmd { margin: 0; padding: 18px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.75; color: #cfd6dd; }
+  pre.cmd .p { color: var(--signal-dim); user-select: none; }
+  pre.cmd .c { color: #5f6a75; }
+  .copy { border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; padding: 5px 9px; cursor: pointer; }
+  .copy:hover { color: var(--signal); border-color: var(--signal); }
+  .install-note { color: var(--dim); font-size: 13px; margin-top: 14px; }
+  .install-note a { color: var(--muted); border-bottom: 1px solid var(--line); }
+  .facts { border: 1px solid var(--line); padding: 20px; background: var(--panel); }
+  .facts h3 { font-family: var(--mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; font-weight: 400; }
+  .facts dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 9px 14px; font-size: 13px; }
+  .facts dt { color: var(--dim); }
+  .facts dd { margin: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink); text-align: right; }
+
+  /* sections */
+  section { padding: 76px 0; border-top: 1px solid var(--line-soft); }
+  .sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 34px; }
+  h2 { font-family: var(--mono); font-weight: 500; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.02em; margin: 8px 0 0; line-height: 1.15; }
+  .sec-head p { color: var(--muted); max-width: 46ch; margin: 0; font-size: 15px; }
+
+  /* screenshot */
+  .shot { border: 1px solid var(--line); background: var(--panel); padding: 10px; }
+  .shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line-soft); }
+  .shot figcaption { display: flex; justify-content: space-between; gap: 16px; padding: 10px 4px 2px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+
+  /* features */
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+  .card { background: var(--bg); padding: 26px 24px 28px; min-height: 190px; }
+  .card .i { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; color: var(--signal-dim); }
+  .card h3 { font-family: var(--mono); font-size: 14px; letter-spacing: .02em; margin: 12px 0 8px; font-weight: 500; }
+  .card p { color: var(--muted); font-size: 13.5px; margin: 0; }
+
+  /* privacy */
+  .privacy { display: grid; grid-template-columns: .9fr 1.1fr; gap: 48px; align-items: start; }
+  .privacy h2 { margin-top: 8px; }
+  .privacy p { color: var(--muted); font-size: 15px; }
+  .privacy .rule { display: flex; gap: 12px; margin-top: 18px; font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .04em; }
+  .privacy .rule b { color: var(--signal); font-weight: 400; }
+  .datatable { border: 1px solid var(--line); background: var(--panel); }
+  .datatable .row { display: grid; grid-template-columns: 1fr 1.1fr; gap: 16px; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+  .datatable .row:last-child { border-bottom: 0; }
+  .datatable .row.head { font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); background: var(--panel-2); }
+  .datatable .k { color: var(--ink); }
+  .datatable .v { color: var(--muted); font-family: var(--mono); font-size: 11.5px; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+  .step { background: var(--bg); padding: 28px 24px; }
+  .step .n { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--dim); }
+  .step h3 { font-family: var(--mono); font-weight: 500; font-size: 15px; margin: 14px 0 8px; }
+  .step p { color: var(--muted); font-size: 13.5px; margin: 0; }
+  .step code { color: var(--ink); background: var(--panel); border: 1px solid var(--line-soft); padding: 1px 5px; font-size: 11.5px; }
+
+  /* faq */
+  .faq { display: grid; grid-template-columns: .55fr 1.45fr; gap: 48px; align-items: start; }
+  details { border-bottom: 1px solid var(--line-soft); padding: 6px 0; }
+  details:first-child { border-top: 1px solid var(--line-soft); }
+  summary {
+    cursor: pointer; list-style: none; padding: 16px 30px 16px 0; position: relative;
+    font-family: var(--mono); font-size: 13px; letter-spacing: .01em;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; position: absolute; right: 4px; top: 13px; color: var(--dim); font-size: 16px; }
+  details[open] summary::after { content: "−"; color: var(--signal); }
+  details p { color: var(--muted); font-size: 13.5px; margin: 0 0 16px; max-width: 70ch; }
+  details code { color: var(--ink); background: var(--panel); border: 1px solid var(--line-soft); padding: 1px 5px; font-size: 11.5px; }
+
+  /* footer */
+  footer { border-top: 1px solid var(--line-soft); padding: 46px 0 60px; }
+  .foot { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; align-items: center; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; color: var(--dim); text-transform: uppercase; }
+  .foot nav { gap: 20px; font-size: 10.5px; }
+
+  @media (max-width: 960px) {
+    .hero { grid-template-columns: 1fr; gap: 36px; padding-top: 56px; }
+    .install-grid, .privacy, .faq { grid-template-columns: 1fr; gap: 28px; }
+    .cards, .steps { grid-template-columns: 1fr 1fr; }
+    nav .hide-sm { display: none; }
+  }
+  @media (max-width: 620px) {
+    .cards, .steps { grid-template-columns: 1fr; }
+    .sec-head { flex-direction: column; align-items: flex-start; }
+    .bar { height: 58px; }
+    nav { gap: 14px; }
+    .facts dl { font-size: 12px; }
+    h1 { font-size: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="#top">
+      <span class="mark">JS</span>
+      <span>JOB SCOUT<small>AGENT CONTROL ROOM</small></span>
+    </a>
+    <nav>
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#faq">FAQ</a>
+      <a class="ghost" href="https://github.com/aniloncul/matching-jobs-finder">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <div class="wrap hero">
+    <div>
+      <div class="eyebrow"><span class="dot">●</span> SELF-HOSTED · YOUR KEYS · YOUR SHEET</div>
+      <h1>Eight agents.<br />One job hunt<em>.</em></h1>
+      <p class="lede">
+        JobScout runs a small room of agents that search <strong>LinkedIn</strong>,
+        <strong>Indeed</strong> and keyless job APIs, verify every posting, score it
+        against your CV, and write the survivors into a <strong>Google Sheet you own</strong>.
+        No account. No sign-up. Nothing leaves your machine.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Install in one command</a>
+        <a class="btn" href="https://github.com/aniloncul/matching-jobs-finder">View source</a>
+      </div>
+      <div class="meta">
+        <span>Docker</span><span>macOS · Linux · Windows</span><span>~65 MB idle</span><span>MIT</span>
+      </div>
+    </div>
+
+    <div class="graph-frame" aria-hidden="true">
+      <svg viewBox="0 0 640 470" role="img" aria-label="Diagram of eight agents: coordinator, LinkedIn scout, Indeed scout, verifier, analyst, registrar, cover writer and boards scout">
+        <path class="edge" d="M320 78 L320 140" />
+        <path class="edge" d="M320 78 C240 100 160 110 95 140" />
+        <path class="edge flow" d="M320 78 C400 100 480 110 545 140" />
+        <path class="edge" d="M245 171 C200 210 175 240 165 270" />
+        <path class="edge flow" d="M320 202 L320 270" />
+        <path class="edge" d="M395 171 C440 210 465 240 475 270" />
+        <path class="edge" d="M240 301 L320 301" />
+        <path class="edge flow" d="M395 301 L475 301" />
+        <path class="edge" d="M320 363 C320 395 320 400 320 390" />
+        <path class="edge" d="M95 202 C95 260 95 330 200 390" />
+
+        <g class="node">
+          <rect x="245" y="16" width="150" height="62" rx="1" />
+          <circle class="dot" cx="256" cy="28" r="2.2" />
+          <text x="265" y="31" class="state">IDLE</text>
+          <text x="257" y="50">Coordinator</text>
+          <text x="257" y="64" class="role">WORK STATION</text>
+        </g>
+        <g class="node">
+          <rect x="20" y="140" width="150" height="62" rx="1" />
+          <circle class="dot" cx="31" cy="152" r="2.2" />
+          <text x="40" y="155" class="state">IDLE</text>
+          <text x="32" y="174">LinkedIn Scout</text>
+          <text x="32" y="188" class="role">SOURCE AGENT</text>
+        </g>
+        <g class="node">
+          <rect x="245" y="140" width="150" height="62" rx="1" />
+          <circle class="dot" cx="256" cy="152" r="2.2" />
+          <text x="265" y="155" class="state">IDLE</text>
+          <text x="257" y="174">Verifier</text>
+          <text x="257" y="188" class="role">LIVENESS AGENT</text>
+        </g>
+        <g class="node">
+          <rect x="470" y="140" width="150" height="62" rx="1" />
+          <circle class="dot" cx="481" cy="152" r="2.2" />
+          <text x="490" y="155" class="state">IDLE</text>
+          <text x="482" y="174">Indeed Scout</text>
+          <text x="482" y="188" class="role">SOURCE AGENT</text>
+        </g>
+        <g class="node">
+          <rect x="90" y="270" width="150" height="62" rx="1" />
+          <circle class="dot" cx="101" cy="282" r="2.2" />
+          <text x="110" y="285" class="state">IDLE</text>
+          <text x="102" y="304">Analyst</text>
+          <text x="102" y="318" class="role">FIT SCORER</text>
+        </g>
+        <g class="node">
+          <rect x="245" y="270" width="150" height="62" rx="1" />
+          <circle class="dot" cx="256" cy="282" r="2.2" />
+          <text x="265" y="285" class="state">IDLE</text>
+          <text x="257" y="304">Registrar</text>
+          <text x="257" y="318" class="role">SHEET WRITER</text>
+        </g>
+        <g class="node">
+          <rect x="400" y="270" width="150" height="62" rx="1" />
+          <circle class="dot" cx="411" cy="282" r="2.2" />
+          <text x="420" y="285" class="state">IDLE</text>
+          <text x="412" y="304">Cover Writer</text>
+          <text x="412" y="318" class="role">APPLICATION AGENT</text>
+        </g>
+        <g class="node">
+          <rect x="245" y="390" width="150" height="62" rx="1" />
+          <circle class="dot" cx="256" cy="402" r="2.2" />
+          <text x="265" y="405" class="state">IDLE</text>
+          <text x="257" y="424">Boards Scout</text>
+          <text x="257" y="438" class="role">KEYLESS · 5 SOURCES</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="wrap install" id="install">
+    <div class="install-grid">
+      <div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span>install · one command</span>
+            <button class="copy" id="copyBtn" type="button">Copy</button>
+          </div>
+<pre class="cmd" id="cmd"><span class="p">$</span> docker run -d --name jobscout \
+    -p 127.0.0.1:8080:8000 \
+    -v jobscout_data:/app/data \
+    ghcr.io/aniloncul/matching-jobs-finder:latest
+
+<span class="c"># open http://localhost:8080</span></pre>
+        </div>
+        <p class="install-note">
+          Docker Desktop or Engine required. The image is multi-arch (amd64 + arm64),
+          so Apple Silicon and x86 both run it natively. Prefer Compose? Grab
+          <a href="https://github.com/aniloncul/matching-jobs-finder/blob/main/deploy/docker/compose.yaml">compose.yaml</a>.
+        </p>
+      </div>
+
+      <aside class="facts">
+        <h3>At a glance</h3>
+        <dl>
+          <dt>Runtime</dt><dd>1 container</dd>
+          <dt>Idle memory</dt><dd>~65 MB</dd>
+          <dt>Image</dt><dd>604 MB</dd>
+          <dt>Data</dt><dd>Docker volume</dd>
+          <dt>Account</dt><dd>none</dd>
+          <dt>Telemetry</dt><dd>none</dd>
+          <dt>License</dt><dd>MIT</dd>
+        </dl>
+      </aside>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <div class="eyebrow">01 / CONTROL ROOM</div>
+          <h2>A control room, not a form.</h2>
+        </div>
+        <p>Watch commands travel between agents in real time. Pause, resume or cancel a run mid-flight; every state change is on the feed.</p>
+      </div>
+      <figure class="shot" style="margin:0">
+        <img src="assets/control-room.png" alt="JobScout control room: agent graph, live feed and run controls" loading="lazy" />
+        <figcaption><span>RUN VIEW · EIGHT AGENTS</span><span>LIVE SSE FEED</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <div class="eyebrow">02 / WHAT THE ROOM DOES</div>
+          <h2>Search, verify, score, write.</h2>
+        </div>
+        <p>Each agent has one job and hands its output to the next. No silent failures: a blocked source says so instead of pretending it was empty.</p>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <div class="i">01</div>
+          <h3>Two visible-browser scouts</h3>
+          <p>LinkedIn and Indeed adapters read public search results in a persistent profile, keep volume low, and stop at cooperative pause checkpoints.</p>
+        </article>
+        <article class="card">
+          <div class="i">02</div>
+          <h3>Five keyless sources</h3>
+          <p>Greenhouse, Lever and Ashby boards, Arbeitnow, Hacker News “who is hiring”, the Bundesagentur API and any RSS feed — plain HTTP, no CAPTCHA race.</p>
+        </article>
+        <article class="card">
+          <div class="i">03</div>
+          <h3>A verifier that says no</h3>
+          <p>Dead links, expired postings and cross-source duplicates collapse before they reach your sheet. Provenance is kept per fetcher.</p>
+        </article>
+        <article class="card">
+          <div class="i">04</div>
+          <h3>Fit scoring against your CV</h3>
+          <p>The analyst compares each posting with your master CV, scores the match, and keeps a ranked shortlist instead of a pile.</p>
+        </article>
+        <article class="card">
+          <div class="i">05</div>
+          <h3>Your own Google Sheet</h3>
+          <p>Paste a sheet link and a service-account JSON once. Rows land in the sheet you shared — or export a plain CSV, no Google account needed.</p>
+        </article>
+        <article class="card">
+          <div class="i">06</div>
+          <h3>Cover letters, your model</h3>
+          <p>Any OpenAI-compatible endpoint, local Ollama included. Tailored letters and ATS-checked CVs, rendered to PDF with LaTeX.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap privacy">
+      <div>
+        <div class="eyebrow">03 / PRIVACY BY ARCHITECTURE</div>
+        <h2>Your keys never leave your machine.</h2>
+        <p>
+          There is no JobScout account, no central server and no telemetry.
+          The container talks to the sources and the model you chose, and writes
+          everything else to a Docker volume on your disk.
+        </p>
+        <div class="rule"><b>●</b> One instance per person, not a shared tenancy.</div>
+        <div class="rule"><b>●</b> Secrets are masked in every read endpoint.</div>
+        <div class="rule"><b>●</b> Files are written 0600, git-ignored.</div>
+      </div>
+      <div class="datatable" role="table" aria-label="Where each kind of data lives">
+        <div class="row head"><span>Data</span><span>Lives in</span></div>
+        <div class="row"><span class="k">Model API key</span><span class="v">settings volume · masked in UI</span></div>
+        <div class="row"><span class="k">Google service account</span><span class="v">volume · 0600</span></div>
+        <div class="row"><span class="k">Master CV, profile</span><span class="v">volume · your files</span></div>
+        <div class="row"><span class="k">Browser sessions</span><span class="v">volume · local Chromium</span></div>
+        <div class="row"><span class="k">Job results</span><span class="v">your Google Sheet or CSV</span></div>
+        <div class="row"><span class="k">Telemetry</span><span class="v">none</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="steps">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <div class="eyebrow">04 / GET RUNNING</div>
+          <h2>Three steps, then press run.</h2>
+        </div>
+        <p>No terminal required after the first command: the Setup tab takes the key and the sheet.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="n">STEP 01</div>
+          <h3>Install Docker</h3>
+          <p>Docker Desktop on macOS or Windows, Docker Engine on Linux. If <code>docker info</code> works, you are ready.</p>
+        </div>
+        <div class="step">
+          <div class="n">STEP 02</div>
+          <h3>Run the container</h3>
+          <p>Paste the command above. It binds to <code>127.0.0.1</code> only, so nothing is exposed to your network.</p>
+        </div>
+        <div class="step">
+          <div class="n">STEP 03</div>
+          <h3>Fill SETUP once</h3>
+          <p>Open <code>localhost:8080</code>, paste a model key, add your sheet, hit <b>Test</b>, then <b>RUN BOTH</b>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap faq">
+      <div>
+        <div class="eyebrow">05 / FAQ</div>
+        <h2>Before you ask.</h2>
+      </div>
+      <div>
+        <details open>
+          <summary>Is it really free?</summary>
+          <p>The app is MIT-licensed and runs in Docker on your machine. You pay nothing to JobScout. You do need a model endpoint: a local Ollama is free, and hosted providers have free tiers — bring whichever key you already have.</p>
+        </details>
+        <details>
+          <summary>Do I need a Google account?</summary>
+          <p>No. Google Sheets is optional; the registrar can write a plain CSV. If you do use a sheet, you create the service account yourself and share that one sheet with it.</p>
+        </details>
+        <details>
+          <summary>Does it scrape LinkedIn or solve CAPTCHAs?</summary>
+          <p>It opens a visible browser with a persistent profile and reads public search result pages, at low volume, with pause and cancel checkpoints. There is no CAPTCHA solving, no proxy rotation and no credential storage. Indeed may ask for a human check; the app pauses and waits for you, then continues.</p>
+        </details>
+        <details>
+          <summary>Can I use a local model?</summary>
+          <p>Yes. Anything OpenAI-compatible works — Ollama, vLLM, LM Studio. Set the base URL and model in SETUP, or point the Compose file at an Ollama container.</p>
+        </details>
+        <details>
+          <summary>Where is my data? How do I back it up?</summary>
+          <p>Everything is in the <code>jobscout_data</code> Docker volume. Back it up with a one-line <code>docker run --rm -v jobscout_data:/data … tar czf</code>; the README has the exact command.</p>
+        </details>
+        <details>
+          <summary>Can I reach it from another device?</summary>
+          <p>You can, but then it is no longer loopback-only: set <code>JOBSCOUT_PASSWORD</code>, publish the port, and put HTTPS in front (Caddy or a tunnel). The guides for a VPS and for Oracle Always Free are in the repo.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>JOB SCOUT · AGENT CONTROL ROOM · MIT</span>
+    <nav>
+      <a href="https://github.com/aniloncul/matching-jobs-finder">Repository</a>
+      <a href="https://github.com/aniloncul/matching-jobs-finder#readme">Docs</a>
+      <a href="https://github.com/aniloncul/matching-jobs-finder/issues">Issues</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var btn = document.getElementById("copyBtn");
+    var cmd = document.getElementById("cmd");
+    if (!btn || !cmd) return;
+    btn.addEventListener("click", function () {
+      var text = [
+        "docker run -d --name jobscout \\",
+        "  -p 127.0.0.1:8080:8000 \\",
+        "  -v jobscout_data:/app/data \\",
+        "  ghcr.io/aniloncul/matching-jobs-finder:latest"
+      ].join("\n");
+      var done = function () {
+        btn.textContent = "Copied";
+        setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    });
+  })();
+</script>
+</body>
+</html>
