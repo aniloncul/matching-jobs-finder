@@ -107,6 +107,11 @@ Everything the Setup view writes lands in `config/settings.local.json`, which lo
 
 ## Deploy (Fly.io)
 
+> **Cost note:** Fly.io is a paid host - there is no free always-on tier. This
+> section is for people who want a 24/7 instance and are fine paying for it.
+> For zero cost, run locally (`jobscout serve`) or on an always-free VM
+> (Oracle Cloud Always Free, GCP e2-micro); the same image works anywhere.
+
 The app is long-lived by design - background run threads, an open SSE stream, a writable `data/` directory, LaTeX and Chromium inside the image. That rules out serverless hosts (Vercel and friends); what fits instead is one small persistent container per user. [Fly.io](https://fly.io) works well and the repo ships the config for it:
 
 ```bash

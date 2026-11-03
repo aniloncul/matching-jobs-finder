@@ -10,7 +10,7 @@
 # API key + service account, browser profiles) lives on the mounted volume
 # and survives restarts and redeploys.
 
-app = "jobscout-anil"  # change to a globally unique name
+app = "jobscout"  # change to a globally unique name
 primary_region = "fra"
 
 [build]
